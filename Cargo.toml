@@ -1,0 +1,43 @@
+[package]
+name = "cryptomator_rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+slint = "^1.17.0"
+serde = { version = "^1.0", features = ["derive"] }
+serde_json = "^1.0"
+scrypt = { version = "^0.11", features = ["simple"] }
+aes-gcm = "^0.10"
+base64 = "^0.22"
+hex = "^0.4"
+rand = "^0.8"
+sha2 = "^0.10"
+rfd = "^0.14"
+fuser = "^0.14.0"
+libc = "^0.2"
+clap = { version = "^4", features = ["derive"] }
+ratatui = "^0.26"
+crossterm = "^0.27"
+
+[build-dependencies]
+slint-build = "^1.17.0"
+
+[profile.dev]
+opt-level = 0
+lto = false
+codegen-units = 256
+incremental = true
+split-debuginfo = "unpacked"
+
+# Keep dependencies optimized (e.g. scrypt, aes-gcm, slint) so the app runs smoothly
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+codegen-units = 16
+lto = false
+incremental = true
+strip = "debuginfo"
+
