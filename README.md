@@ -8,7 +8,7 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
 - **Tresor-Verwaltung**: Speichert registrierte Tresore persistent in `vaults.json`.
 - **Desktop-Dateimanager**: Ermöglicht das Anlegen, Importieren, Exportieren und Löschen von verschlüsselten Dateien und Verzeichnissen direkt über die grafische Oberfläche (`egui`).
 - **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal.
-- **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via `fuser` (FUSE 3).
+- **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via Pure-Rust FUSE (ohne C `libfuse`-Bindung).
 - **CLI-Befehle**: Vollwertige Steuerung ohne GUI über Subcommands (`list`, `create`, `mount`, `tui`).
 - **Sicherheitsarchitektur**:
   - **Schlüsselableitung**: Scrypt (N=16384, r=8, p=1) mit optionaler Unterstützung für Schlüsseldateien (Keyfiles).
@@ -16,6 +16,7 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
   - **Dateinamen-Verschleierung**: Physikalische Dateinamen auf dem Datenträger werden deterministisch durch `SHA-256(master_key || relativer_pfad)` verschleiert.
   - **Auto-Lock**: Automatische Sperrung des entsperrten Tresors bei Inaktivität nach konfigurierbarer Zeit.
 - **Code-Qualität & Compliance**:
+  - 100 % Pure Rust: FUSE-Integration läuft nativ ohne `libfuse`-C-Bibliothek (`default-features = false`).
   - Strikte Zero-Panic-Policy via Clippy (`panic`, `unwrap_used`, `expect_used`, `panic_in_result_fn`, `unreachable`, `todo`, `unimplemented` auf `deny`).
   - Lizenzprüfung via [`deny.toml`](deny.toml) und automatisierter Integrationstest [`tests/test_license_compatibility.rs`](tests/test_license_compatibility.rs) zur Sicherstellung der MIT-Kompatibilität aller Abhängigkeiten.
   - Plattformübergreifend lauffähig (Linux X11/Wayland, macOS, Windows).
@@ -23,14 +24,14 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
 ## Voraussetzungen & Installation
 
 ### Voraussetzungen (Linux)
-Für die grafische Oberfläche und das FUSE-Mounting werden unter Linux FUSE 3- sowie Grafik-Bibliotheken benötigt:
+Da die FUSE-Treiber-Implementierung 100 % in Pure Rust läuft, wird **keine C-Entwicklungsbibliothek (`libfuse3-dev`) zum Kompilieren benötigt**. Für unprivilegierte Desktop-Mounts und die GUI werden lediglich Grafikbibliotheken und das Systemwerkzeug `fuse3` (`fusermount3`) benötigt:
 
 ```bash
 # Debian / Ubuntu
-sudo apt install libfuse3-dev pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+sudo apt install fuse3 pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev
 
 # Fedora
-sudo dnf install fuse3-devel pkgconf-pkg-config libX11-devel libXcursor-devel libXrandr-devel libXi-devel mesa-libGL-devel
+sudo dnf install fuse3 pkgconf-pkg-config libX11-devel libXcursor-devel libXrandr-devel libXi-devel mesa-libGL-devel
 
 # Arch Linux
 sudo pacman -S fuse3 pkgconf libx11 libxcursor libxrandr libxi mesa

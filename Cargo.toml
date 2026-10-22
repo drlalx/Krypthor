@@ -28,7 +28,7 @@ egui = { version = "0.36", optional = true }
 egui-elegance = { version = "0.16", optional = true }
 
 [target.'cfg(unix)'.dependencies]
-fuser = "0.14"
+fuser = { version = "0.14", default-features = false }
 libc = "0.2"
 
 [target.'cfg(windows)'.dependencies.eframe]
