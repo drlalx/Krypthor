@@ -308,6 +308,161 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Ls { path, password } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => match vault::list_files(path_buf, &master_key) {
+                        Ok(files) => {
+                            if files.is_empty() {
+                                println!("Vault is empty.");
+                            } else {
+                                for f in files {
+                                    if !f.ends_with("/.keep") {
+                                        println!("{f}");
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error listing files: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Put {
+                path,
+                source,
+                target,
+                password,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let content = match std::fs::read(&source) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to read source file '{source}': {e}");
+                        std::process::exit(1);
+                    }
+                };
+                let target_path = target.unwrap_or_else(|| {
+                    Path::new(&source)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "imported_file".to_string())
+                });
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => {
+                        match vault::write_file(path_buf, &master_key, &target_path, &content) {
+                            Ok(_) => {
+                                println!(
+                                    "File stored as '{target_path}' ({}) in vault.",
+                                    format_bytes_cli(content.len() as u64)
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("Error storing file: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Cat {
+                path,
+                file,
+                password,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => match vault::read_file(path_buf, &master_key, &file) {
+                        Ok(content) => {
+                            let _ = std::io::stdout().write_all(&content);
+                        }
+                        Err(e) => {
+                            eprintln!("Error reading file '{file}': {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Rm {
+                path,
+                file,
+                password,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => match vault::delete_file(path_buf, &master_key, &file) {
+                        Ok(_) => {
+                            println!("File '{file}' deleted from vault.");
+                        }
+                        Err(e) => {
+                            eprintln!("Error deleting file: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 
@@ -322,5 +477,15 @@ fn main() {
     #[cfg(not(feature = "egui-ui"))]
     {
         eprintln!("GUI is disabled in this build. Use --tui or a CLI command.");
+    }
+}
+
+fn format_bytes_cli(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     }
 }

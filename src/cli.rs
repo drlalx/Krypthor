@@ -85,4 +85,52 @@ pub enum Commands {
         #[arg(short, long)]
         key: Option<String>,
     },
+    /// List all files stored inside a vault
+    Ls {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Encrypt and store a file into the vault
+    Put {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Local file to encrypt and store
+        #[arg(short, long)]
+        source: String,
+        /// Relative path inside the vault (defaults to source filename)
+        #[arg(short, long)]
+        target: Option<String>,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Decrypt and print the contents of a file in the vault to stdout
+    Cat {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Relative path of the file inside the vault
+        #[arg(short, long)]
+        file: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Delete a file inside the vault
+    Rm {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Relative path of the file inside the vault
+        #[arg(short, long)]
+        file: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
 }

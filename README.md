@@ -128,6 +128,26 @@ cargo run --release -- recovery-key --path "/pfad/zum/tresor"
 cargo run --release -- recover --path "/pfad/zum/tresor" --key "XXXX-XXXX-XXXX-..."
 ```
 
+#### Dateien im Tresor auflisten (ls)
+```bash
+cargo run --release -- ls --path "/pfad/zum/tresor"
+```
+
+#### Datei in Tresor verschlüsseln & ablegen (put)
+```bash
+cargo run --release -- put --path "/pfad/zum/tresor" --source "lokale_datei.txt" --target "ordner/datei.txt"
+```
+
+#### Dateiinhalt entschlüsseln & ausgeben (cat)
+```bash
+cargo run --release -- cat --path "/pfad/zum/tresor" --file "ordner/datei.txt"
+```
+
+#### Datei im Tresor löschen (rm)
+```bash
+cargo run --release -- rm --path "/pfad/zum/tresor" --file "ordner/datei.txt"
+```
+
 ## Projektstruktur
 
 - [`src/main.rs`](src/main.rs): Einstiegspunkt, CLI-Argument-Parsing (`clap`) und Befehls-Dispatching.

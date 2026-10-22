@@ -111,6 +111,77 @@ fn test_cli_vault_workflow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Vault successfully decrypted using recovery key!"));
 
+    // 7. Store file via CLI (put)
+    let tmp_src = std::env::temp_dir().join("cryptomator_cli_sample.txt");
+    fs::write(&tmp_src, b"Confidential financial data").unwrap();
+
+    let output = Command::new(bin_path)
+        .args([
+            "put",
+            "--path",
+            &vault_path,
+            "--source",
+            &tmp_src.to_string_lossy(),
+            "--target",
+            "finances/report.txt",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute put command");
+    assert!(output.status.success());
+
+    // 8. List files via CLI (ls)
+    let output = Command::new(bin_path)
+        .args(["ls", "--path", &vault_path, "--password", "updated_secret"])
+        .output()
+        .expect("Failed to execute ls command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("finances/report.txt"));
+
+    // 9. Read file content via CLI (cat)
+    let output = Command::new(bin_path)
+        .args([
+            "cat",
+            "--path",
+            &vault_path,
+            "--file",
+            "finances/report.txt",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute cat command");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"Confidential financial data");
+
+    // 10. Delete file via CLI (rm)
+    let output = Command::new(bin_path)
+        .args([
+            "rm",
+            "--path",
+            &vault_path,
+            "--file",
+            "finances/report.txt",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute rm command");
+    assert!(output.status.success());
+
+    // 11. ls now shows empty
+    let output = Command::new(bin_path)
+        .args(["ls", "--path", &vault_path, "--password", "updated_secret"])
+        .output()
+        .expect("Failed to execute ls command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Vault is empty."));
+
+    let _ = fs::remove_file(&tmp_src);
+
     // Cleanup
     let _ = fs::remove_dir_all(&test_dir);
 }
