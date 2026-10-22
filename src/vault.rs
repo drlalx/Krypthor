@@ -338,6 +338,46 @@ pub fn delete_file(
     Ok(())
 }
 
+pub fn rename_file(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    old_rel_path: &str,
+    new_rel_path: &str,
+) -> Result<(), String> {
+    if old_rel_path == new_rel_path {
+        return Ok(());
+    }
+    let content = read_file(vault_dir, master_key, old_rel_path)?;
+    write_file(vault_dir, master_key, new_rel_path, &content)?;
+    delete_file(vault_dir, master_key, old_rel_path)?;
+    Ok(())
+}
+
+pub fn rename_dir(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    old_prefix: &str,
+    new_prefix: &str,
+) -> Result<(), String> {
+    let old_p = old_prefix.trim().trim_matches('/');
+    let new_p = new_prefix.trim().trim_matches('/');
+    if old_p == new_p {
+        return Ok(());
+    }
+    let files = list_files(vault_dir, master_key)?;
+    let old_with_slash = format!("{old_p}/");
+
+    for file in files {
+        if let Some(suffix) = file.strip_prefix(&old_with_slash) {
+            let new_path = format!("{new_p}/{suffix}");
+            rename_file(vault_dir, master_key, &file, &new_path)?;
+        } else if file == old_p {
+            rename_file(vault_dir, master_key, &file, new_p)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>, String> {
     let d_dir = vault_dir.join("d");
     if !d_dir.exists() {
@@ -407,6 +447,48 @@ mod tests {
         assert_eq!(files_after.len(), 0);
 
         // Cleanup
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_rename_file_and_dir() {
+        let test_dir = std::env::temp_dir().join("cryptomator_test_rename");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+
+        create_vault(&test_dir, "testpass", None).unwrap();
+        let key = unlock_vault(&test_dir, "testpass", None).unwrap();
+
+        // 1. Write file
+        write_file(&test_dir, &key, "docs/old_name.txt", b"secret text").unwrap();
+        assert_eq!(
+            list_files(&test_dir, &key).unwrap(),
+            vec!["docs/old_name.txt"]
+        );
+
+        // 2. Rename file
+        rename_file(&test_dir, &key, "docs/old_name.txt", "docs/new_name.txt").unwrap();
+        assert_eq!(
+            list_files(&test_dir, &key).unwrap(),
+            vec!["docs/new_name.txt"]
+        );
+        assert_eq!(
+            read_file(&test_dir, &key, "docs/new_name.txt").unwrap(),
+            b"secret text"
+        );
+
+        // 3. Rename directory
+        rename_dir(&test_dir, &key, "docs", "archive").unwrap();
+        assert_eq!(
+            list_files(&test_dir, &key).unwrap(),
+            vec!["archive/new_name.txt"]
+        );
+        assert_eq!(
+            read_file(&test_dir, &key, "archive/new_name.txt").unwrap(),
+            b"secret text"
+        );
+
         let _ = fs::remove_dir_all(&test_dir);
     }
 

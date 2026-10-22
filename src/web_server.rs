@@ -92,6 +92,13 @@ pub struct MkdirRequest {
     pub folder_path: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct RenameFileRequest {
+    pub vault_path: String,
+    pub old_path: String,
+    pub new_path: String,
+}
+
 #[derive(Serialize)]
 pub struct GenericSuccessResponse {
     pub success: bool,
@@ -465,6 +472,58 @@ async fn mkdir_handler(
     }))
 }
 
+async fn rename_file_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RenameFileRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let unlocked = state.unlocked_vaults.read().await;
+    let master_key = unlocked.get(&payload.vault_path).ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked".into(),
+            }),
+        )
+    })?;
+
+    let vault_dir = Path::new(&payload.vault_path);
+    let files = vault::list_files(vault_dir, master_key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    let is_dir = files
+        .iter()
+        .any(|f| f.starts_with(&format!("{}/", payload.old_path.trim_matches('/'))));
+
+    if is_dir {
+        vault::rename_dir(vault_dir, master_key, &payload.old_path, &payload.new_path).map_err(
+            |e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error: e }),
+                )
+            },
+        )?;
+    } else {
+        vault::rename_file(vault_dir, master_key, &payload.old_path, &payload.new_path).map_err(
+            |e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error: e }),
+                )
+            },
+        )?;
+    }
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: "Renamed successfully".into(),
+    }))
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index_handler))
@@ -481,6 +540,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/preview", get(preview_file_handler))
         .route("/api/vaults/upload", post(upload_file_handler))
         .route("/api/vaults/mkdir", post(mkdir_handler))
+        .route("/api/vaults/rename", post(rename_file_handler))
         .route("/api/vaults/delete", post(delete_file_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)

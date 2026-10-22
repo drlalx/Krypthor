@@ -953,7 +953,17 @@
                         <span style="font-weight: 600;">${escapeHtml(folder)}</span>
                       </div>
                     </td>
-                    <td></td>
+                    <td>
+                      <div class="file-actions" onclick="event.stopPropagation()">
+                        <button class="btn btn-secondary btn-sm" onclick="handleRenamePrompt('${escapeHtml(targetPath)}')">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                          </svg>
+                          Umbenennen
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 `;
               }).join("")}
@@ -976,6 +986,13 @@
                           <circle cx="12" cy="12" r="3"></circle>
                         </svg>
                         Vorschau
+                      </button>
+                      <button class="btn btn-secondary btn-sm" onclick="handleRenamePrompt('${escapeHtml(f.fullPath)}')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                        Umbenennen
                       </button>
                       <a href="/api/vaults/download?vault_path=${encodeURIComponent(selectedVault.path)}&file_path=${encodeURIComponent(f.fullPath)}" class="btn btn-secondary btn-sm" download>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1119,6 +1136,37 @@
         }
       } catch (err) {
         showToast("Fehler beim Löschen: " + err, "error");
+      }
+    }
+
+    async function handleRenamePrompt(oldPath) {
+      const defaultVal = oldPath.split("/").pop();
+      const newName = prompt(`Neuer Name für "${oldPath}":`, defaultVal);
+      if (!newName || newName === defaultVal) return;
+
+      const parts = oldPath.split("/");
+      parts.pop();
+      const newPath = parts.length ? parts.join("/") + "/" + newName : newName;
+
+      try {
+        const res = await fetch("/api/vaults/rename", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vault_path: selectedVault.path,
+            old_path: oldPath,
+            new_path: newPath
+          })
+        });
+        if (res.ok) {
+          showToast("Erfolgreich umbenannt", "success");
+          loadVaultFiles();
+        } else {
+          const err = await res.json();
+          showToast("Fehler beim Umbenennen: " + err.error, "error");
+        }
+      } catch (err) {
+        showToast("Fehler: " + err, "error");
       }
     }
 

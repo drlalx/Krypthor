@@ -71,6 +71,9 @@ struct CryptomatorApp {
     new_file_modal_open: bool,
     new_file_name: String,
     new_file_content: String,
+    rename_modal_open: bool,
+    rename_target: String,
+    rename_new_name: String,
 
     // Throughput & activity stats
     throughput_history: VecDeque<f32>,
@@ -131,6 +134,9 @@ impl CryptomatorApp {
             new_file_modal_open: false,
             new_file_name: String::new(),
             new_file_content: String::new(),
+            rename_modal_open: false,
+            rename_target: String::new(),
+            rename_new_name: String::new(),
 
             throughput_history,
             active_read_speed: 0.0,
@@ -969,6 +975,45 @@ impl CryptomatorApp {
             ui.add_space(10.0);
         }
 
+        if self.rename_modal_open {
+            Card::new().heading("Rename File").show(ui, |ui| {
+                ui.label(format!("Original path: {}", self.rename_target));
+                ui.label("New name / relative path:");
+                ui.text_edit_singleline(&mut self.rename_new_name);
+                ui.horizontal(|ui| {
+                    if ui.button("💾 Save").clicked() {
+                        let new_name = self.rename_new_name.trim().to_string();
+                        if !new_name.is_empty() && new_name != self.rename_target {
+                            match vault::rename_file(
+                                vault_path,
+                                &master_key,
+                                &self.rename_target,
+                                &new_name,
+                            ) {
+                                Ok(_) => {
+                                    let old_name = self.rename_target.clone();
+                                    self.rename_modal_open = false;
+                                    self.refresh_vault_files();
+                                    self.status_message = Some((
+                                        format!("Renamed '{old_name}' to '{new_name}'."),
+                                        false,
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Error renaming file: {e}"), true));
+                                }
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.rename_modal_open = false;
+                    }
+                });
+            });
+            ui.add_space(10.0);
+        }
+
         // Files List
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.vault_files.is_empty() {
@@ -977,6 +1022,7 @@ impl CryptomatorApp {
             } else {
                 let mut file_to_export = None;
                 let mut file_to_delete = None;
+                let mut file_to_rename = None;
 
                 for file in &self.vault_files {
                     ui.horizontal(|ui| {
@@ -987,12 +1033,21 @@ impl CryptomatorApp {
                             if ui.button("🗑 Delete").clicked() {
                                 file_to_delete = Some(file.clone());
                             }
+                            if ui.button("✏ Rename").clicked() {
+                                file_to_rename = Some(file.clone());
+                            }
                             if ui.button("💾 Export").clicked() {
                                 file_to_export = Some(file.clone());
                             }
                         });
                     });
                     ui.separator();
+                }
+
+                if let Some(target) = file_to_rename {
+                    self.rename_modal_open = true;
+                    self.rename_target = target.clone();
+                    self.rename_new_name = target;
                 }
 
                 if let Some(target) = file_to_export {
