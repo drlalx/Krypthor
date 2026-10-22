@@ -148,6 +148,16 @@ cargo run --release -- cat --path "/pfad/zum/tresor" --file "ordner/datei.txt"
 cargo run --release -- rm --path "/pfad/zum/tresor" --file "ordner/datei.txt"
 ```
 
+#### Datei oder Ordner im Tresor verschieben / umbenennen (mv)
+```bash
+cargo run --release -- mv --path "/pfad/zum/tresor" --old-path "dokumente/alt.txt" --new-path "archiv/neu.txt"
+```
+
+#### Tresor-Statistiken abrufen (stats)
+```bash
+cargo run --release -- stats --path "/pfad/zum/tresor"
+```
+
 ## Projektstruktur
 
 - [`src/main.rs`](src/main.rs): Einstiegspunkt, CLI-Argument-Parsing (`clap`) und Befehls-Dispatching.

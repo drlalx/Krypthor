@@ -133,4 +133,28 @@ pub enum Commands {
         #[arg(long)]
         password: Option<String>,
     },
+    /// Rename or move a file or directory inside the vault
+    Mv {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Current relative path inside the vault
+        #[arg(long)]
+        old_path: String,
+        /// New relative path inside the vault
+        #[arg(long)]
+        new_path: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Show vault statistics (number of decrypted files and total payload size)
+    Stats {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
 }

@@ -156,14 +156,46 @@ fn test_cli_vault_workflow() {
     assert!(output.status.success());
     assert_eq!(output.stdout, b"Confidential financial data");
 
-    // 10. Delete file via CLI (rm)
+    // 10. Check stats via CLI
+    let output = Command::new(bin_path)
+        .args([
+            "stats",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute stats command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Decrypted Files: 1"));
+
+    // 11. Rename/move file via CLI (mv)
+    let output = Command::new(bin_path)
+        .args([
+            "mv",
+            "--path",
+            &vault_path,
+            "--old-path",
+            "finances/report.txt",
+            "--new-path",
+            "archive/old_report.txt",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute mv command");
+    assert!(output.status.success());
+
+    // 12. Delete file via CLI (rm)
     let output = Command::new(bin_path)
         .args([
             "rm",
             "--path",
             &vault_path,
             "--file",
-            "finances/report.txt",
+            "archive/old_report.txt",
             "--password",
             "updated_secret",
         ])
@@ -171,7 +203,7 @@ fn test_cli_vault_workflow() {
         .expect("Failed to execute rm command");
     assert!(output.status.success());
 
-    // 11. ls now shows empty
+    // 13. ls now shows empty
     let output = Command::new(bin_path)
         .args(["ls", "--path", &vault_path, "--password", "updated_secret"])
         .output()

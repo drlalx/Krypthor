@@ -802,6 +802,8 @@ mod tests {
     use axum::http::Request;
     use tower::ServiceExt;
 
+    static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test]
     async fn test_web_status_endpoint() {
         let state = Arc::new(AppState::default());
@@ -835,6 +837,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_web_api_full_vault_lifecycle() {
+        let _guard = TEST_LOCK.lock().await;
         let temp_dir = std::env::temp_dir().join("cryptomator_web_test_vault");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
@@ -979,6 +982,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_web_api_change_password_and_recovery() {
+        let _guard = TEST_LOCK.lock().await;
         let temp_dir = std::env::temp_dir().join("cryptomator_web_test_pw_change");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);

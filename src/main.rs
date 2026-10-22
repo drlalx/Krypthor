@@ -463,6 +463,93 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Mv {
+                path,
+                old_path,
+                new_path,
+                password,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => {
+                        let files = match vault::list_files(path_buf, &master_key) {
+                            Ok(f) => f,
+                            Err(e) => {
+                                eprintln!("Error inspecting vault: {e}");
+                                std::process::exit(1);
+                            }
+                        };
+                        let is_dir = files
+                            .iter()
+                            .any(|f| f.starts_with(&format!("{}/", old_path.trim_matches('/'))));
+                        let result = if is_dir {
+                            vault::rename_dir(path_buf, &master_key, &old_path, &new_path)
+                        } else {
+                            vault::rename_file(path_buf, &master_key, &old_path, &new_path)
+                        };
+                        match result {
+                            Ok(_) => {
+                                println!(
+                                    "Successfully moved/renamed '{old_path}' to '{new_path}'."
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("Error moving file: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Stats { path, password } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => match vault::get_vault_stats(path_buf, &master_key) {
+                        Ok(stats) => {
+                            println!("Vault Statistics for '{path}':");
+                            println!("  Decrypted Files: {}", stats.total_files);
+                            println!(
+                                "  Payload Size:    {}",
+                                format_bytes_cli(stats.total_size_bytes)
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("Error computing stats: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 
