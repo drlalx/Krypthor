@@ -8,6 +8,10 @@ pub struct CliArgs {
     #[arg(long)]
     pub tui: bool,
 
+    /// Start the background daemon with embedded Web UI (Syncthing-style)
+    #[arg(long)]
+    pub serve: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -16,6 +20,15 @@ pub struct CliArgs {
 pub enum Commands {
     /// Start the Terminal User Interface (TUI)
     Tui,
+    /// Start the background daemon with embedded Web UI (Syncthing-style)
+    Serve {
+        /// Host address to bind to
+        #[arg(short = 'H', long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port to bind to
+        #[arg(short, long, default_value_t = 8080)]
+        port: u16,
+    },
     /// List all registered vaults
     List,
     /// Create a new vault

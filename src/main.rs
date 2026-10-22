@@ -6,6 +6,8 @@ mod fs_fuse;
 #[cfg(feature = "tui")]
 mod tui_app;
 mod vault;
+#[cfg(feature = "web")]
+mod web_server;
 
 use clap::Parser;
 use serde::{Deserialize, Serialize};
@@ -50,6 +52,22 @@ fn main() {
         return;
     }
 
+    #[cfg(feature = "web")]
+    if args.serve {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => {
+                eprintln!("Failed to create tokio runtime: {e}");
+                std::process::exit(1);
+            }
+        };
+        if let Err(e) = rt.block_on(web_server::run_server("127.0.0.1", 8080)) {
+            eprintln!("Web server error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if let Some(command) = args.command {
         match command {
             cli::Commands::Tui => {
@@ -64,6 +82,28 @@ fn main() {
                 #[cfg(not(feature = "tui"))]
                 {
                     eprintln!("TUI feature is disabled in this build.");
+                    std::process::exit(1);
+                }
+            }
+            cli::Commands::Serve { host, port } => {
+                #[cfg(feature = "web")]
+                {
+                    let rt = match tokio::runtime::Runtime::new() {
+                        Ok(rt) => rt,
+                        Err(e) => {
+                            eprintln!("Failed to create tokio runtime: {e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    if let Err(e) = rt.block_on(web_server::run_server(&host, port)) {
+                        eprintln!("Web server error: {e}");
+                        std::process::exit(1);
+                    }
+                    return;
+                }
+                #[cfg(not(feature = "web"))]
+                {
+                    eprintln!("Web feature is disabled in this build.");
                     std::process::exit(1);
                 }
             }

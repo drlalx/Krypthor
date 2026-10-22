@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cryptomator RS - Web Control</title>
+  <style>
+    :root {
+      --bg-base: #0f1115;
+      --bg-surface: #181b20;
+      --bg-surface-hover: #21262d;
+      --bg-card: #1e2228;
+      --border: #2d333b;
+      --border-focus: #3b82f6;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --success: #10b981;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --warning: #f59e0b;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text);
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Layout */
+    .sidebar {
+      width: 320px;
+      min-width: 280px;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-base);
+      overflow-y: auto;
+      position: relative;
+    }
+
+    /* Sidebar Header */
+    .brand {
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    .brand-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--primary);
+    }
+
+    /* Vaults List in Sidebar */
+    .vault-list-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+    }
+    .vault-item {
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      border-radius: var(--radius);
+      background: var(--bg-card);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .vault-item:hover {
+      background: var(--bg-surface-hover);
+      border-color: var(--border);
+    }
+    .vault-item.active {
+      border-color: var(--primary);
+      background: rgba(59, 130, 246, 0.08);
+    }
+    .vault-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .vault-item-name {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .vault-item-path {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .status-dot.unlocked {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+    .status-dot.locked {
+      background: var(--text-muted);
+    }
+
+    /* Sidebar Footer */
+    .sidebar-footer {
+      padding: 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 8px 14px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      border-radius: var(--radius);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: background 0.15s ease;
+      text-decoration: none;
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover {
+      background: var(--bg-surface-hover);
+    }
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger);
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+    .btn-danger:hover {
+      background: var(--danger);
+      color: white;
+    }
+    .btn-sm {
+      padding: 4px 8px;
+      font-size: 0.75rem;
+    }
+
+    /* Main Area / Content */
+    .topbar {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--bg-surface);
+    }
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+    .crumb-link {
+      color: var(--primary);
+      cursor: pointer;
+    }
+    .crumb-link:hover {
+      text-decoration: underline;
+    }
+
+    .content-area {
+      flex: 1;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Welcome / Empty Screen */
+    .empty-state {
+      margin: auto;
+      text-align: center;
+      max-width: 440px;
+      color: var(--text-muted);
+    }
+    .empty-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 16px;
+      color: var(--text-muted);
+    }
+
+    /* Card Panels */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+    }
+
+    /* Locked Screen */
+    .unlock-card {
+      max-width: 460px;
+      margin: 40px auto;
+      text-align: center;
+    }
+    .form-group {
+      margin: 16px 0;
+      text-align: left;
+    }
+    .form-label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .form-input {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .form-input:focus {
+      border-color: var(--border-focus);
+    }
+
+    /* File Table */
+    .file-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+    }
+    .file-table th {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .file-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.88rem;
+    }
+    .file-row {
+      transition: background 0.15s ease;
+    }
+    .file-row:hover {
+      background: var(--bg-surface-hover);
+    }
+    .file-name-cell {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 500;
+    }
+    .file-actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    /* Drag & Drop Overlay */
+    .dropzone-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 17, 21, 0.85);
+      border: 2px dashed var(--primary);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      pointer-events: none;
+    }
+    .dropzone-overlay.dragover {
+      display: flex;
+    }
+
+    /* Modals */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-backdrop.open {
+      display: flex;
+    }
+    .modal-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 480px;
+      max-width: 90vw;
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .modal-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 1.2rem;
+    }
+
+    /* Toast */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 200;
+    }
+    .toast {
+      padding: 12px 18px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.85rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      animation: slideIn 0.2s ease-out;
+    }
+    .toast.success {
+      border-left: 4px solid var(--success);
+    }
+    .toast.error {
+      border-left: 4px solid var(--danger);
+    }
+    @keyframes slideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-title">Cryptomator RS</div>
+        <div class="badge">Web Daemon</div>
+      </div>
+    </div>
+
+    <div class="vault-list-container" id="vaultList">
+      <!-- Dynamic list of vaults -->
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="btn btn-primary" onclick="openModal('addVaultModal')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        Neuer Tresor / Hinzufügen
+      </button>
+      <div style="font-size: 0.72rem; color: var(--text-muted); text-align: center;">
+        Syncthing-Style Daemon • 127.0.0.1
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main View -->
+  <main class="main" id="mainDropZone">
+    <div class="dropzone-overlay" id="dropOverlay">
+      <div style="text-align: center; color: var(--primary);">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="17 8 12 3 7 8"></polyline>
+          <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <h3 style="margin-top: 10px;">Dateien zum Verschlüsseln ablegen</h3>
+      </div>
+    </div>
+
+    <div class="topbar">
+      <div class="breadcrumbs" id="breadcrumbs">
+        <span class="crumb-link" onclick="loadVaultFiles()">Tresor</span>
+      </div>
+      <div id="topActions" style="display: none; gap: 8px;">
+        <input type="file" id="fileUploadInput" multiple style="display: none;" onchange="handleFileUpload(this.files)">
+        <button class="btn btn-secondary btn-sm" onclick="document.getElementById('fileUploadInput').click()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          Upload
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openModal('createTextModal')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Neue Textdatei
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="lockCurrentVault()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          Sperren
+        </button>
+      </div>
+    </div>
+
+    <div class="content-area" id="mainContent">
+      <div class="empty-state">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+        </div>
+        <h2>Kein Tresor ausgewählt</h2>
+        <p style="margin-top: 8px;">Wähle einen Tresor aus der linken Seitenleiste aus oder erstelle einen neuen Tresor.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- Add Vault Modal -->
+  <div class="modal-backdrop" id="addVaultModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Tresor hinzufügen oder erstellen</div>
+        <button class="modal-close" onclick="closeModal('addVaultModal')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Name des Tresors</label>
+        <input type="text" id="vaultNameInput" class="form-input" placeholder="z. B. Dokumente">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Speicherpfad</label>
+        <input type="text" id="vaultPathInput" class="form-input" placeholder="/home/benutzer/MeinTresor">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Aktion</label>
+        <select id="vaultActionSelect" class="form-input" onchange="toggleVaultCreateFields()">
+          <option value="create">Neuen Tresor initialisieren</option>
+          <option value="register">Bestehenden Tresor registrieren</option>
+        </select>
+      </div>
+      <div class="form-group" id="vaultPasswordGroup">
+        <label class="form-label">Passwort für neuen Tresor</label>
+        <input type="password" id="vaultNewPasswordInput" class="form-input" placeholder="Mindestens 8 Zeichen">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeModal('addVaultModal')">Abbrechen</button>
+        <button class="btn btn-primary" onclick="handleAddVault()">Hinzufügen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Create Text File Modal -->
+  <div class="modal-backdrop" id="createTextModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Neue Textdatei anlegen</div>
+        <button class="modal-close" onclick="closeModal('createTextModal')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Dateiname</label>
+        <input type="text" id="newFileNameInput" class="form-input" placeholder="notizen.txt">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Inhalt</label>
+        <textarea id="newFileContentInput" class="form-input" rows="6" placeholder="Text hier eingeben..."></textarea>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeModal('createTextModal')">Abbrechen</button>
+        <button class="btn btn-primary" onclick="handleCreateTextFile()">Speichern</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    let vaults = [];
+    let selectedVault = null;
+    let currentPath = "";
+
+    // Load initial vaults on page load
+    document.addEventListener("DOMContentLoaded", () => {
+      loadVaults();
+      setupDragAndDrop();
+    });
+
+    async function loadVaults() {
+      try {
+        const res = await fetch("/api/vaults");
+        vaults = await res.json();
+        renderVaultList();
+        if (selectedVault) {
+          const updated = vaults.find(v => v.path === selectedVault.path);
+          if (updated) {
+            selectVault(updated);
+          }
+        }
+      } catch (err) {
+        showToast("Fehler beim Laden der Tresore: " + err, "error");
+      }
+    }
+
+    function renderVaultList() {
+      const list = document.getElementById("vaultList");
+      if (vaults.length === 0) {
+        list.innerHTML = `<div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem;">Keine Tresore registriert.</div>`;
+        return;
+      }
+      list.innerHTML = vaults.map(v => `
+        <div class="vault-item ${selectedVault && selectedVault.path === v.path ? 'active' : ''}" onclick='selectVaultByPath("${encodeURIComponent(v.path)}")'>
+          <div class="vault-item-header">
+            <span class="vault-item-name">${escapeHtml(v.name)}</span>
+            <span class="status-dot ${v.is_unlocked ? 'unlocked' : 'locked'}" title="${v.is_unlocked ? 'Entsperrt' : 'Gesperrt'}"></span>
+          </div>
+          <div class="vault-item-path">${escapeHtml(v.path)}</div>
+        </div>
+      `).join("");
+    }
+
+    function selectVaultByPath(encodedPath) {
+      const path = decodeURIComponent(encodedPath);
+      const v = vaults.find(x => x.path === path);
+      if (v) selectVault(v);
+    }
+
+    function selectVault(v) {
+      selectedVault = v;
+      currentPath = "";
+      renderVaultList();
+      renderVaultDetail();
+    }
+
+    function renderVaultDetail() {
+      const content = document.getElementById("mainContent");
+      const topActions = document.getElementById("topActions");
+      const breadcrumbs = document.getElementById("breadcrumbs");
+
+      if (!selectedVault) {
+        topActions.style.display = "none";
+        content.innerHTML = `
+          <div class="empty-state">
+            <h2>Kein Tresor ausgewählt</h2>
+          </div>`;
+        return;
+      }
+
+      breadcrumbs.innerHTML = `<span class="crumb-link" onclick="selectVault(selectedVault)">${escapeHtml(selectedVault.name)}</span>`;
+
+      if (!selectedVault.is_unlocked) {
+        topActions.style.display = "none";
+        content.innerHTML = `
+          <div class="card unlock-card">
+            <div style="margin-bottom: 16px;">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--primary);">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+              </svg>
+            </div>
+            <h2>${escapeHtml(selectedVault.name)} ist gesperrt</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 4px;">Gib dein Passwort ein, um den Tresor zu entschlüsseln.</p>
+            <form onsubmit="handleUnlock(event)" style="margin-top: 20px;">
+              <div class="form-group">
+                <input type="password" id="unlockPassword" class="form-input" placeholder="Tresor-Passwort" required autofocus>
+              </div>
+              <button type="submit" class="btn btn-primary" style="width: 100%;">Tresor entsperren</button>
+            </form>
+          </div>
+        `;
+      } else {
+        topActions.style.display = "flex";
+        loadVaultFiles();
+      }
+    }
+
+    async function handleUnlock(e) {
+      e.preventDefault();
+      const pwInput = document.getElementById("unlockPassword");
+      const password = pwInput.value;
+
+      try {
+        const res = await fetch("/api/vaults/unlock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: selectedVault.path,
+            password: password
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Falsches Passwort");
+        }
+
+        showToast("Tresor erfolgreich entsperrt", "success");
+        await loadVaults();
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    async function lockCurrentVault() {
+      if (!selectedVault) return;
+      try {
+        const res = await fetch("/api/vaults/lock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: selectedVault.path })
+        });
+        if (res.ok) {
+          showToast("Tresor gesperrt", "success");
+          await loadVaults();
+        }
+      } catch (err) {
+        showToast("Fehler beim Sperren: " + err, "error");
+      }
+    }
+
+    async function loadVaultFiles() {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      const content = document.getElementById("mainContent");
+
+      try {
+        const res = await fetch(`/api/vaults/files?path=${encodeURIComponent(selectedVault.path)}`);
+        if (!res.ok) {
+          throw new Error("Dateien konnten nicht geladen werden");
+        }
+        const data = await res.json();
+        renderFileList(data.files);
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    function renderFileList(files) {
+      const content = document.getElementById("mainContent");
+      if (!files || files.length === 0) {
+        content.innerHTML = `
+          <div class="empty-state">
+            <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+              <polyline points="13 2 13 9 20 9"></polyline>
+            </svg>
+            <h3>Dieser Tresor ist leer</h3>
+            <p style="margin-top: 6px;">Ziehe Dateien hierher oder nutze den Upload-Button.</p>
+          </div>
+        `;
+        return;
+      }
+
+      content.innerHTML = `
+        <div class="card" style="padding: 0; overflow: hidden;">
+          <table class="file-table">
+            <thead>
+              <tr>
+                <th>Name / Pfad</th>
+                <th style="text-align: right;">Aktionen</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${files.map(f => `
+                <tr class="file-row">
+                  <td>
+                    <div class="file-name-cell">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);">
+                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                        <polyline points="13 2 13 9 20 9"></polyline>
+                      </svg>
+                      <span>${escapeHtml(f)}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="file-actions">
+                      <a href="/api/vaults/download?vault_path=${encodeURIComponent(selectedVault.path)}&file_path=${encodeURIComponent(f)}" class="btn btn-secondary btn-sm" download>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                          <polyline points="7 10 12 15 17 10"></polyline>
+                          <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        Download
+                      </a>
+                      <button class="btn btn-danger btn-sm" onclick="handleDeleteFile('${escapeHtml(f)}')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <polyline points="3 6 5 6 21 6"></polyline>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                        Löschen
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    async function handleFileUpload(fileList) {
+      if (!selectedVault || !fileList.length) return;
+      for (const file of fileList) {
+        const formData = new FormData();
+        formData.append("vault_path", selectedVault.path);
+        formData.append("folder", currentPath);
+        formData.append("file", file);
+
+        try {
+          const res = await fetch("/api/vaults/upload", {
+            method: "POST",
+            body: formData
+          });
+          if (res.ok) {
+            showToast(`${file.name} erfolgreich hochgeladen`, "success");
+          } else {
+            const err = await res.json();
+            showToast(`Upload fehlgeschlagen: ${err.error}`, "error");
+          }
+        } catch (err) {
+          showToast(`Fehler beim Upload: ${err}`, "error");
+        }
+      }
+      loadVaultFiles();
+    }
+
+    async function handleCreateTextFile() {
+      const name = document.getElementById("newFileNameInput").value.trim();
+      const content = document.getElementById("newFileContentInput").value;
+      if (!name) {
+        showToast("Bitte gib einen Dateinamen an", "error");
+        return;
+      }
+
+      const blob = new Blob([content], { type: "text/plain" });
+      const file = new File([blob], name);
+      closeModal("createTextModal");
+      await handleFileUpload([file]);
+      document.getElementById("newFileNameInput").value = "";
+      document.getElementById("newFileContentInput").value = "";
+    }
+
+    async function handleDeleteFile(filePath) {
+      if (!confirm(`Möchtest du "${filePath}" wirklich unwiderruflich aus dem Tresor löschen?`)) return;
+      try {
+        const res = await fetch("/api/vaults/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vault_path: selectedVault.path,
+            file_path: filePath
+          })
+        });
+        if (res.ok) {
+          showToast("Datei gelöscht", "success");
+          loadVaultFiles();
+        } else {
+          const err = await res.json();
+          showToast("Löschen fehlgeschlagen: " + err.error, "error");
+        }
+      } catch (err) {
+        showToast("Fehler beim Löschen: " + err, "error");
+      }
+    }
+
+    function toggleVaultCreateFields() {
+      const action = document.getElementById("vaultActionSelect").value;
+      const pwGroup = document.getElementById("vaultPasswordGroup");
+      pwGroup.style.display = action === "create" ? "block" : "none";
+    }
+
+    async function handleAddVault() {
+      const name = document.getElementById("vaultNameInput").value.trim();
+      const path = document.getElementById("vaultPathInput").value.trim();
+      const action = document.getElementById("vaultActionSelect").value;
+      const password = document.getElementById("vaultNewPasswordInput").value;
+
+      if (!name || !path) {
+        showToast("Bitte Name und Pfad ausfüllen", "error");
+        return;
+      }
+      if (action === "create" && !password) {
+        showToast("Bitte ein Passwort für den neuen Tresor angeben", "error");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/vaults", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name,
+            path,
+            password: action === "create" ? password : null,
+            create_new: action === "create"
+          })
+        });
+        if (res.ok) {
+          showToast(action === "create" ? "Tresor erfolgreich erstellt!" : "Tresor registriert!", "success");
+          closeModal("addVaultModal");
+          await loadVaults();
+        } else {
+          const err = await res.json();
+          showToast("Fehler: " + err.error, "error");
+        }
+      } catch (err) {
+        showToast("Fehler: " + err, "error");
+      }
+    }
+
+    // Drag and Drop
+    function setupDragAndDrop() {
+      const dropZone = document.getElementById("mainDropZone");
+      const overlay = document.getElementById("dropOverlay");
+
+      dropZone.addEventListener("dragenter", (e) => {
+        if (selectedVault && selectedVault.is_unlocked) {
+          overlay.classList.add("dragover");
+        }
+      });
+      overlay.addEventListener("dragleave", (e) => {
+        overlay.classList.remove("dragover");
+      });
+      dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+      });
+      dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        overlay.classList.remove("dragover");
+        if (selectedVault && selectedVault.is_unlocked && e.dataTransfer.files.length) {
+          handleFileUpload(e.dataTransfer.files);
+        }
+      });
+    }
+
+    // Modal Helpers
+    function openModal(id) {
+      document.getElementById(id).classList.add("open");
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove("open");
+    }
+
+    // Toast helper
+    function showToast(msg, type = "info") {
+      const container = document.getElementById("toastContainer");
+      const toast = document.createElement("div");
+      toast.className = `toast ${type}`;
+      toast.innerText = msg;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3500);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+      }[tag] || tag));
+    }
+  </script>
+</body>
+</html>
