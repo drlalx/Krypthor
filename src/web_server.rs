@@ -289,6 +289,30 @@ async fn list_files_handler(
     Ok(Json(FilesResponse { files }))
 }
 
+async fn vault_stats_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<FilesQuery>,
+) -> Result<Json<vault::VaultStats>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked or session expired".into(),
+            }),
+        )
+    })?;
+
+    let vault_path = Path::new(&query.path);
+    let stats = vault::get_vault_stats(vault_path, &master_key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(stats))
+}
+
 async fn download_file_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DownloadQuery>,
@@ -676,6 +700,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/lock", post(lock_vault_handler))
         .route("/api/vaults/remove", post(remove_vault_handler))
         .route("/api/vaults/files", get(list_files_handler))
+        .route("/api/vaults/stats", get(vault_stats_handler))
         .route("/api/vaults/download", get(download_file_handler))
         .route("/api/vaults/preview", get(preview_file_handler))
         .route("/api/vaults/upload", post(upload_file_handler))

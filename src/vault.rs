@@ -472,6 +472,45 @@ pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>
     Ok(files)
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct VaultStats {
+    pub total_files: usize,
+    pub total_size_bytes: u64,
+}
+
+pub fn get_vault_stats(vault_dir: &Path, master_key: &[u8; 32]) -> Result<VaultStats, String> {
+    let d_dir = vault_dir.join("d");
+    if !d_dir.exists() {
+        return Ok(VaultStats {
+            total_files: 0,
+            total_size_bytes: 0,
+        });
+    }
+
+    let mut total_files = 0;
+    let mut total_size_bytes = 0;
+
+    for entry in fs::read_dir(d_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "c9r") {
+            let mut file = File::open(&path).map_err(|e| e.to_string())?;
+            let mut payload = Vec::new();
+            if file.read_to_end(&mut payload).is_ok()
+                && let Ok((_rel_path, content)) = decrypt_file_payload(master_key, &payload)
+            {
+                total_files += 1;
+                total_size_bytes += content.len() as u64;
+            }
+        }
+    }
+
+    Ok(VaultStats {
+        total_files,
+        total_size_bytes,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -696,5 +735,29 @@ mod tests {
         let path2 = "documents/other.pdf";
         let name3 = get_physical_filename(&master_key, path2);
         assert_ne!(name1, name3);
+    }
+
+    #[test]
+    fn test_vault_stats() {
+        let test_dir = std::env::temp_dir().join("cryptomator_test_stats");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+
+        create_vault(&test_dir, "test_pw", None).unwrap();
+        let key = unlock_vault(&test_dir, "test_pw", None).unwrap();
+
+        let empty_stats = get_vault_stats(&test_dir, &key).unwrap();
+        assert_eq!(empty_stats.total_files, 0);
+        assert_eq!(empty_stats.total_size_bytes, 0);
+
+        write_file(&test_dir, &key, "file1.txt", b"hello").unwrap();
+        write_file(&test_dir, &key, "sub/file2.txt", b"world 123").unwrap();
+
+        let stats = get_vault_stats(&test_dir, &key).unwrap();
+        assert_eq!(stats.total_files, 2);
+        assert_eq!(stats.total_size_bytes, 5 + 9);
+
+        let _ = fs::remove_dir_all(&test_dir);
     }
 }

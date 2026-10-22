@@ -517,10 +517,14 @@
     </div>
 
     <div class="topbar">
-      <div class="breadcrumbs" id="breadcrumbs">
-        <span class="crumb-link" onclick="loadVaultFiles()">Tresor</span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <div class="breadcrumbs" id="breadcrumbs">
+          <span class="crumb-link" onclick="loadVaultFiles()">Tresor</span>
+        </div>
+        <span id="vaultStatsBadge" class="badge" style="display: none; font-size: 0.72rem; margin-left: 6px;"></span>
       </div>
-      <div id="topActions" style="display: none; gap: 8px; flex-wrap: wrap;">
+      <div id="topActions" style="display: none; gap: 8px; flex-wrap: wrap; align-items: center;">
+        <input type="text" id="fileFilterInput" class="form-input" placeholder="🔍 Suchen..." style="width: 140px; padding: 5px 8px; font-size: 0.8rem; height: 32px;" oninput="handleFilterInput(this.value)">
         <input type="file" id="fileUploadInput" multiple style="display: none;" onchange="handleFileUpload(this.files)">
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('fileUploadInput').click()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -752,6 +756,39 @@
     let selectedVault = null;
     let currentPath = "";
     let rawVaultFiles = [];
+    let fileFilterQuery = "";
+
+    function handleFilterInput(query) {
+      fileFilterQuery = query.trim().toLowerCase();
+      renderFileList(rawVaultFiles);
+    }
+
+    async function loadVaultStats() {
+      const badge = document.getElementById("vaultStatsBadge");
+      if (!selectedVault || !selectedVault.is_unlocked) {
+        if (badge) badge.style.display = "none";
+        return;
+      }
+      try {
+        const res = await fetch(`/api/vaults/stats?path=${encodeURIComponent(selectedVault.path)}`);
+        if (res.ok) {
+          const stats = await res.json();
+          const sizeStr = formatBytes(stats.total_size_bytes);
+          badge.innerText = `${stats.total_files} Datei(en) • ${sizeStr}`;
+          badge.style.display = "inline-block";
+        }
+      } catch (e) {
+        console.error("Failed to load vault stats", e);
+      }
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0) return "0 B";
+      const k = 1024;
+      const sizes = ["B", "KB", "MB", "GB", "TB"];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
+    }
 
     document.addEventListener("DOMContentLoaded", () => {
       loadVaults();
@@ -845,6 +882,8 @@
 
       if (!selectedVault) {
         topActions.style.display = "none";
+        const badge = document.getElementById("vaultStatsBadge");
+        if (badge) badge.style.display = "none";
         content.innerHTML = `
           <div class="empty-state">
             <h2>Kein Tresor ausgewählt</h2>
@@ -856,6 +895,8 @@
 
       if (!selectedVault.is_unlocked) {
         topActions.style.display = "none";
+        const badge = document.getElementById("vaultStatsBadge");
+        if (badge) badge.style.display = "none";
         content.innerHTML = `
           <div class="card unlock-card">
             <div style="margin-bottom: 16px;">
@@ -962,6 +1003,7 @@
         const data = await res.json();
         rawVaultFiles = data.files || [];
         renderFileList(rawVaultFiles);
+        loadVaultStats();
       } catch (err) {
         showToast(err.message, "error");
       }
@@ -970,6 +1012,49 @@
     function renderFileList(allFiles) {
       const content = document.getElementById("mainContent");
       renderBreadcrumbs();
+
+      if (fileFilterQuery) {
+        const filtered = allFiles.filter(f => f.toLowerCase().includes(fileFilterQuery) && !f.endsWith("/.keep"));
+        content.innerHTML = `
+          <div class="card" style="padding: 0; overflow: hidden;">
+            <div style="padding: 10px 14px; background: rgba(59, 130, 246, 0.1); border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--primary);">
+              🔍 Suchergebnisse für "${escapeHtml(fileFilterQuery)}" (${filtered.length} Treffer):
+            </div>
+            <table class="file-table">
+              <thead>
+                <tr>
+                  <th>Pfad</th>
+                  <th style="text-align: right;">Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${filtered.length === 0 ? '<tr><td colspan="2" style="text-align: center; color: var(--text-muted); padding: 20px;">Keine Dateien gefunden.</td></tr>' : ''}
+                ${filtered.map(f => `
+                  <tr class="file-row" onclick="openFilePreview('${escapeHtml(f)}')">
+                    <td>
+                      <div class="file-name-cell">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);">
+                          <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                          <polyline points="13 2 13 9 20 9"></polyline>
+                        </svg>
+                        <span>${escapeHtml(f)}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <div class="file-actions" onclick="event.stopPropagation()">
+                        <button class="btn btn-secondary btn-sm" onclick="openFilePreview('${escapeHtml(f)}')">Vorschau</button>
+                        <a href="/api/vaults/download?vault_path=${encodeURIComponent(selectedVault.path)}&file_path=${encodeURIComponent(f)}" class="btn btn-secondary btn-sm" download>Download</a>
+                        <button class="btn btn-danger btn-sm" onclick="handleDeleteFile('${escapeHtml(f)}')">Löschen</button>
+                      </div>
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+        return;
+      }
 
       // Filter and partition into items for current directory
       const prefix = currentPath ? currentPath + "/" : "";
