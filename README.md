@@ -60,12 +60,20 @@ cargo run --release
 ```
 
 ### 2. Terminal User Interface (TUI)
-Für die Bedienung im Terminal:
+Für die intuitive Bedienung im Terminal:
 ```bash
 cargo run --release -- tui
 # Alternativ:
 cargo run --release -- --tui
 ```
+- `[↑/↓]` oder `[j/k]`: Tresor auswählen
+- `[Enter]` oder `[u]`: Tresor mit Passwort entsperren & FUSE-Mount aktivieren
+- `[r]`: Tresor mit 64-stelligem Recovery-Key wiederherstellen & mounten
+- `[x]`: Wiederherstellungsschlüssel des entsperrten Tresors anzeigen
+- `[l]`: Tresor sperren & unmounten
+- `[a]`: Bestehenden Tresorpfad registrieren
+- `[c]`: Neuen Tresor interaktiv erstellen
+- `[q]`: TUI beenden
 
 ### 3. Web-Client & Daemon (Syncthing-Stil)
 Startet den Hintergrunddienst mit eingebettetem Web-Dashboard:

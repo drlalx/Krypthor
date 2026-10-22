@@ -47,6 +47,7 @@ fn save_saved_vaults(vaults: &[SavedVault]) {
 enum InputMode {
     Normal,
     PasswordInput,
+    RecoverKeyInput,
     AddVaultPathInput,
     CreateNameInput,
     CreatePathInput,
@@ -56,6 +57,7 @@ enum InputMode {
 struct TuiApp {
     vaults: Vec<SavedVault>,
     active_mounts: HashMap<PathBuf, (fuser::BackgroundSession, PathBuf)>, // path -> (session, mountpoint)
+    unlocked_keys: HashMap<PathBuf, [u8; 32]>,
     list_state: ListState,
     input_mode: InputMode,
     input_value: String,
@@ -77,6 +79,7 @@ impl TuiApp {
         Self {
             vaults,
             active_mounts: HashMap::new(),
+            unlocked_keys: HashMap::new(),
             list_state,
             input_mode: InputMode::Normal,
             input_value: String::new(),
@@ -130,38 +133,69 @@ impl TuiApp {
 
         match vault::unlock_vault(&vault_path, password, None) {
             Ok(master_key) => {
-                // Setup and create FUSE mount directory in user home: ~/CryptomatorMounts/<vault_name>
-                let home_dir =
-                    std::env::var("HOME").unwrap_or_else(|_| "/home/adrichel".to_string());
-                let mount_base = Path::new(&home_dir).join("CryptomatorMounts");
-                let mount_dir = mount_base.join(&vault.name);
-
-                if let Err(e) = std::fs::create_dir_all(&mount_dir) {
-                    self.status_message = format!("Failed to create mount folder: {}", e);
-                    self.status_is_error = true;
-                    return;
-                }
-
-                let fs_impl = fs_fuse::CryptomatorFS::new(vault_path.clone(), master_key);
-                let mount_options = vec![fuser::MountOption::CUSTOM(
-                    "fsname=cryptomator-rs".to_string(),
-                )];
-
-                match fuser::spawn_mount2(fs_impl, &mount_dir, &mount_options) {
-                    Ok(session) => {
-                        self.active_mounts
-                            .insert(vault_path, (session, mount_dir.clone()));
-                        self.status_message = format!("Vault unlocked! Mounted at {:?}", mount_dir);
-                        self.status_is_error = false;
-                    }
-                    Err(e) => {
-                        self.status_message = format!("Mount failed: {}", e);
-                        self.status_is_error = true;
-                    }
-                }
+                self.mount_unlocked_vault(vault_path, master_key, &vault.name);
             }
             Err(e) => {
                 self.status_message = format!("Unlock failed: {}", e);
+                self.status_is_error = true;
+            }
+        }
+    }
+
+    fn recover_active_vault(&mut self, recovery_key: &str) {
+        let Some(idx) = self.list_state.selected() else {
+            return;
+        };
+        let vault = self.vaults[idx].clone();
+        let vault_path = PathBuf::from(&vault.path);
+
+        match vault::unlock_vault_with_recovery_key(recovery_key) {
+            Ok(master_key) => {
+                if let Err(e) = vault::list_files(&vault_path, &master_key) {
+                    self.status_message = format!("Recovery key failed to decrypt: {e}");
+                    self.status_is_error = true;
+                    return;
+                }
+                self.mount_unlocked_vault(vault_path, master_key, &vault.name);
+            }
+            Err(e) => {
+                self.status_message = format!("Invalid recovery key: {e}");
+                self.status_is_error = true;
+            }
+        }
+    }
+
+    fn mount_unlocked_vault(
+        &mut self,
+        vault_path: PathBuf,
+        master_key: [u8; 32],
+        vault_name: &str,
+    ) {
+        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/adrichel".to_string());
+        let mount_base = Path::new(&home_dir).join("CryptomatorMounts");
+        let mount_dir = mount_base.join(vault_name);
+
+        if let Err(e) = std::fs::create_dir_all(&mount_dir) {
+            self.status_message = format!("Failed to create mount folder: {}", e);
+            self.status_is_error = true;
+            return;
+        }
+
+        let fs_impl = fs_fuse::CryptomatorFS::new(vault_path.clone(), master_key);
+        let mount_options = vec![fuser::MountOption::CUSTOM(
+            "fsname=cryptomator-rs".to_string(),
+        )];
+
+        match fuser::spawn_mount2(fs_impl, &mount_dir, &mount_options) {
+            Ok(session) => {
+                self.unlocked_keys.insert(vault_path.clone(), master_key);
+                self.active_mounts
+                    .insert(vault_path, (session, mount_dir.clone()));
+                self.status_message = format!("Vault unlocked! Mounted at {:?}", mount_dir);
+                self.status_is_error = false;
+            }
+            Err(e) => {
+                self.status_message = format!("Mount failed: {}", e);
                 self.status_is_error = true;
             }
         }
@@ -172,6 +206,7 @@ impl TuiApp {
             return;
         };
         let vault_path = PathBuf::from(&self.vaults[idx].path);
+        self.unlocked_keys.remove(&vault_path);
         if let Some((_, mountpoint)) = self.active_mounts.remove(&vault_path) {
             self.status_message = format!("Vault locked. Unmounted {:?}", mountpoint);
             self.status_is_error = false;
@@ -309,6 +344,47 @@ fn run_loop<B: ratatui::backend::Backend>(
                         app.input_mode = InputMode::CreateNameInput;
                         app.input_value.clear();
                         app.status_message = "[Step 1/3] Enter name for new vault:".to_string();
+                    }
+                    KeyCode::Char('r') => {
+                        if app.list_state.selected().is_some() {
+                            app.input_mode = InputMode::RecoverKeyInput;
+                            app.input_value.clear();
+                            app.status_message =
+                                "Enter 64-char recovery key to unlock:".to_string();
+                        }
+                    }
+                    KeyCode::Char('x') => {
+                        if let Some(idx) = app.list_state.selected() {
+                            let path = PathBuf::from(&app.vaults[idx].path);
+                            if let Some(key) = app.unlocked_keys.get(&path) {
+                                let rec = vault::export_recovery_key(key);
+                                app.status_message = format!("Recovery Key: {rec}");
+                                app.status_is_error = false;
+                            } else {
+                                app.status_message =
+                                    "Vault must be unlocked to view recovery key.".to_string();
+                                app.status_is_error = true;
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                InputMode::RecoverKeyInput => match key.code {
+                    KeyCode::Enter => {
+                        let rec_key = app.input_value.clone();
+                        app.input_value.clear();
+                        app.input_mode = InputMode::Normal;
+                        app.recover_active_vault(&rec_key);
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.status_message = "Recovery cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
                     }
                     _ => {}
                 },
@@ -558,6 +634,19 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
                 ),
             ]));
 
+            if let Some(master_key) = app.unlocked_keys.get(&path)
+                && let Ok(stats) = vault::get_vault_stats(&path, master_key)
+            {
+                let size_mb = stats.total_size_bytes as f64 / (1024.0 * 1024.0);
+                detail_lines.push(Line::from(vec![
+                    Span::styled("Contents:     ", Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("{} file(s), {:.2} MB", stats.total_files, size_mb),
+                        Style::default().fg(theme_cyan),
+                    ),
+                ]));
+            }
+
             detail_lines.push(Line::from(""));
             detail_lines.push(Line::from(Span::styled(
                 "✔ You can access your decrypted files directly in this mount folder.",
@@ -602,6 +691,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         _ => {
             let input_title = match app.input_mode {
                 InputMode::PasswordInput => " Enter Password ",
+                InputMode::RecoverKeyInput => " Enter 64-char Recovery Key ",
                 InputMode::AddVaultPathInput => " Path to Existing Vault ",
                 InputMode::CreateNameInput => " New Vault Name (1/3) ",
                 InputMode::CreatePathInput => " Base Folder Path (2/3) ",
@@ -653,7 +743,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .style(Style::default().bg(theme_dark_bg));
 
     let bindings_text = Span::styled(
-        " [↑/↓] Select  [Enter/u] Toggle Unlock  [l] Lock  [a] Add Existing  [c] Create  [q] Quit",
+        " [↑/↓] Select  [Enter/u] Toggle Unlock  [r] Recover with Key  [x] Export Key  [l] Lock  [a] Add  [c] Create  [q] Quit",
         Style::default().fg(theme_cyan),
     );
 
