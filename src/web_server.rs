@@ -16,9 +16,32 @@ use tower_http::cors::CorsLayer;
 use crate::vault;
 use crate::{SavedVault, load_saved_vaults, save_saved_vaults};
 
+pub struct UnlockedVaultInfo {
+    pub master_key: [u8; 32],
+    pub last_activity: std::time::Instant,
+}
+
 #[derive(Default)]
 pub struct AppState {
-    pub unlocked_vaults: RwLock<HashMap<String, [u8; 32]>>,
+    pub unlocked_vaults: RwLock<HashMap<String, UnlockedVaultInfo>>,
+}
+
+impl AppState {
+    pub async fn get_master_key(&self, vault_path: &str) -> Option<[u8; 32]> {
+        let mut unlocked = self.unlocked_vaults.write().await;
+        if let Some(info) = unlocked.get_mut(vault_path) {
+            // Auto-lock after 30 minutes (1800s) of inactivity
+            if info.last_activity.elapsed().as_secs() > 1800 {
+                unlocked.remove(vault_path);
+                None
+            } else {
+                info.last_activity = std::time::Instant::now();
+                Some(info.master_key)
+            }
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -99,6 +122,29 @@ pub struct RenameFileRequest {
     pub new_path: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct ChangePasswordRequest {
+    pub vault_path: String,
+    pub old_password: String,
+    pub new_password: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RecoveryKeyRequest {
+    pub vault_path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RecoverVaultRequest {
+    pub path: String,
+    pub recovery_key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RecoveryKeyResponse {
+    pub recovery_key: String,
+}
+
 #[derive(Serialize)]
 pub struct GenericSuccessResponse {
     pub success: bool,
@@ -119,7 +165,10 @@ async fn status_handler() -> Json<StatusResponse> {
 
 async fn list_vaults_handler(State(state): State<Arc<AppState>>) -> Json<Vec<VaultInfo>> {
     let saved = load_saved_vaults();
-    let unlocked = state.unlocked_vaults.read().await;
+    let mut unlocked = state.unlocked_vaults.write().await;
+    // Evict expired vaults (30 minutes inactivity)
+    unlocked.retain(|_, info| info.last_activity.elapsed().as_secs() <= 1800);
+
     let list = saved
         .into_iter()
         .map(|v| {
@@ -190,7 +239,13 @@ async fn unlock_vault_handler(
         .map_err(|e| (StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: e })))?;
 
     let mut unlocked = state.unlocked_vaults.write().await;
-    unlocked.insert(payload.path, master_key);
+    unlocked.insert(
+        payload.path,
+        UnlockedVaultInfo {
+            master_key,
+            last_activity: std::time::Instant::now(),
+        },
+    );
 
     Ok(Json(GenericSuccessResponse {
         success: true,
@@ -214,18 +269,17 @@ async fn list_files_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<FilesQuery>,
 ) -> Result<Json<FilesResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let unlocked = state.unlocked_vaults.read().await;
-    let master_key = unlocked.get(&query.path).ok_or_else(|| {
+    let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: "Vault is locked".into(),
+                error: "Vault is locked or session expired".into(),
             }),
         )
     })?;
 
     let vault_path = Path::new(&query.path);
-    let files = vault::list_files(vault_path, master_key).map_err(|e| {
+    let files = vault::list_files(vault_path, &master_key).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -239,18 +293,20 @@ async fn download_file_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DownloadQuery>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let unlocked = state.unlocked_vaults.read().await;
-    let master_key = unlocked.get(&query.vault_path).ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "Vault is locked".into(),
-            }),
-        )
-    })?;
+    let master_key = state
+        .get_master_key(&query.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
 
     let vault_path = Path::new(&query.vault_path);
-    let content = vault::read_file(vault_path, master_key, &query.file_path)
+    let content = vault::read_file(vault_path, &master_key, &query.file_path)
         .map_err(|e| (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })))?;
 
     let filename = Path::new(&query.file_path)
@@ -317,12 +373,11 @@ async fn upload_file_handler(
         filename = "uploaded_file".to_string();
     }
 
-    let unlocked = state.unlocked_vaults.read().await;
-    let master_key = unlocked.get(&vault_path).ok_or_else(|| {
+    let master_key = state.get_master_key(&vault_path).await.ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
             Json(ErrorResponse {
-                error: "Vault is locked".into(),
+                error: "Vault is locked or session expired".into(),
             }),
         )
     })?;
@@ -334,7 +389,7 @@ async fn upload_file_handler(
     };
 
     let vault_dir = Path::new(&vault_path);
-    vault::write_file(vault_dir, master_key, &relative_path, &file_bytes).map_err(|e| {
+    vault::write_file(vault_dir, &master_key, &relative_path, &file_bytes).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -351,18 +406,20 @@ async fn delete_file_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<DeleteFileRequest>,
 ) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let unlocked = state.unlocked_vaults.read().await;
-    let master_key = unlocked.get(&payload.vault_path).ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "Vault is locked".into(),
-            }),
-        )
-    })?;
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
 
     let vault_dir = Path::new(&payload.vault_path);
-    vault::delete_file(vault_dir, master_key, &payload.file_path).map_err(|e| {
+    vault::delete_file(vault_dir, &master_key, &payload.file_path).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -379,18 +436,20 @@ async fn preview_file_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DownloadQuery>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    let unlocked = state.unlocked_vaults.read().await;
-    let master_key = unlocked.get(&query.vault_path).ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "Vault is locked".into(),
-            }),
-        )
-    })?;
+    let master_key = state
+        .get_master_key(&query.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
 
     let vault_path = Path::new(&query.vault_path);
-    let content = vault::read_file(vault_path, master_key, &query.file_path)
+    let content = vault::read_file(vault_path, &master_key, &query.file_path)
         .map_err(|e| (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })))?;
 
     let filename = Path::new(&query.file_path)
@@ -437,15 +496,17 @@ async fn mkdir_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<MkdirRequest>,
 ) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let unlocked = state.unlocked_vaults.read().await;
-    let master_key = unlocked.get(&payload.vault_path).ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "Vault is locked".into(),
-            }),
-        )
-    })?;
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
 
     let trimmed = payload.folder_path.trim().trim_matches('/');
     if trimmed.is_empty() {
@@ -459,7 +520,7 @@ async fn mkdir_handler(
 
     let keep_file = format!("{trimmed}/.keep");
     let vault_dir = Path::new(&payload.vault_path);
-    vault::write_file(vault_dir, master_key, &keep_file, b"").map_err(|e| {
+    vault::write_file(vault_dir, &master_key, &keep_file, b"").map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -476,18 +537,20 @@ async fn rename_file_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<RenameFileRequest>,
 ) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let unlocked = state.unlocked_vaults.read().await;
-    let master_key = unlocked.get(&payload.vault_path).ok_or_else(|| {
-        (
-            StatusCode::UNAUTHORIZED,
-            Json(ErrorResponse {
-                error: "Vault is locked".into(),
-            }),
-        )
-    })?;
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
 
     let vault_dir = Path::new(&payload.vault_path);
-    let files = vault::list_files(vault_dir, master_key).map_err(|e| {
+    let files = vault::list_files(vault_dir, &master_key).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -499,7 +562,7 @@ async fn rename_file_handler(
         .any(|f| f.starts_with(&format!("{}/", payload.old_path.trim_matches('/'))));
 
     if is_dir {
-        vault::rename_dir(vault_dir, master_key, &payload.old_path, &payload.new_path).map_err(
+        vault::rename_dir(vault_dir, &master_key, &payload.old_path, &payload.new_path).map_err(
             |e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -508,7 +571,7 @@ async fn rename_file_handler(
             },
         )?;
     } else {
-        vault::rename_file(vault_dir, master_key, &payload.old_path, &payload.new_path).map_err(
+        vault::rename_file(vault_dir, &master_key, &payload.old_path, &payload.new_path).map_err(
             |e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -524,6 +587,82 @@ async fn rename_file_handler(
     }))
 }
 
+async fn change_password_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let vault_dir = Path::new(&payload.vault_path);
+    vault::change_vault_password(
+        vault_dir,
+        &payload.old_password,
+        None,
+        &payload.new_password,
+        None,
+    )
+    .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
+    // Relock after password change for security
+    let mut unlocked = state.unlocked_vaults.write().await;
+    unlocked.remove(&payload.vault_path);
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: "Password changed successfully. Please unlock again with the new password.".into(),
+    }))
+}
+
+async fn recovery_key_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RecoveryKeyRequest>,
+) -> Result<Json<RecoveryKeyResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
+
+    let recovery_key = vault::export_recovery_key(&master_key);
+    Ok(Json(RecoveryKeyResponse { recovery_key }))
+}
+
+async fn recover_vault_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RecoverVaultRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = vault::unlock_vault_with_recovery_key(&payload.recovery_key)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
+    let vault_dir = Path::new(&payload.path);
+    if let Err(e) = vault::list_files(vault_dir, &master_key) {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: format!("Recovery key failed to decrypt vault: {e}"),
+            }),
+        ));
+    }
+
+    let mut unlocked = state.unlocked_vaults.write().await;
+    unlocked.insert(
+        payload.path,
+        UnlockedVaultInfo {
+            master_key,
+            last_activity: std::time::Instant::now(),
+        },
+    );
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: "Vault recovered and unlocked successfully".into(),
+    }))
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index_handler))
@@ -533,6 +672,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(list_vaults_handler).post(create_or_register_vault_handler),
         )
         .route("/api/vaults/unlock", post(unlock_vault_handler))
+        .route("/api/vaults/recover", post(recover_vault_handler))
         .route("/api/vaults/lock", post(lock_vault_handler))
         .route("/api/vaults/remove", post(remove_vault_handler))
         .route("/api/vaults/files", get(list_files_handler))
@@ -542,6 +682,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/mkdir", post(mkdir_handler))
         .route("/api/vaults/rename", post(rename_file_handler))
         .route("/api/vaults/delete", post(delete_file_handler))
+        .route("/api/vaults/change_password", post(change_password_handler))
+        .route("/api/vaults/recovery_key", post(recovery_key_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -752,6 +894,178 @@ mod tests {
                     .uri("/api/vaults/remove")
                     .header("content-type", "application/json")
                     .body(Body::from(serde_json::to_vec(&remove_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        save_saved_vaults(&original_saved);
+    }
+
+    #[tokio::test]
+    async fn test_web_api_change_password_and_recovery() {
+        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_pw_change");
+        if temp_dir.exists() {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+        }
+        let original_saved = load_saved_vaults();
+
+        let state = Arc::new(AppState::default());
+        let router = build_router(state);
+
+        // 1. Create vault
+        let create_req = AddVaultRequest {
+            name: "PwTestVault".to_string(),
+            path: temp_dir.to_string_lossy().to_string(),
+            password: Some("first_password".to_string()),
+            create_new: true,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&create_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 2. Unlock vault
+        let unlock_req = UnlockVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+            password: "first_password".to_string(),
+            keyfile: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 3. Export recovery key
+        let rec_req = RecoveryKeyRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/recovery_key")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&rec_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let rec_body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let rec_data: RecoveryKeyResponse = serde_json::from_slice(&rec_body).unwrap();
+        let recovery_key = rec_data.recovery_key;
+        assert!(recovery_key.contains('-'));
+
+        // 4. Change password
+        let chg_req = ChangePasswordRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+            old_password: "first_password".to_string(),
+            new_password: "second_password".to_string(),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/change_password")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&chg_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 5. Old password now fails unlock
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 6. Recover vault using recovery key
+        let recover_req = RecoverVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+            recovery_key,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/recover")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&recover_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 7. Lock vault again
+        let lock_req = LockVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+        };
+        let _ = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/lock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&lock_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // 8. New password unlocks successfully
+        let unlock_new_req = UnlockVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+            password: "second_password".to_string(),
+            keyfile: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_new_req).unwrap()))
                     .unwrap(),
             )
             .await

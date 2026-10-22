@@ -231,6 +231,74 @@ pub fn create_vault(
     Ok(())
 }
 
+pub fn change_vault_password(
+    vault_dir: &Path,
+    old_password: &str,
+    old_keyfile: Option<&Path>,
+    new_password: &str,
+    new_keyfile: Option<&Path>,
+) -> Result<(), String> {
+    // 1. Decrypt existing master key
+    let master_key = unlock_vault(vault_dir, old_password, old_keyfile)?;
+
+    // 2. Generate new salt
+    let mut new_salt = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut new_salt);
+
+    // 3. Derive new key combining new password and new keyfile
+    let derived_key = derive_final_key(new_password, &new_salt, new_keyfile)?;
+
+    // 4. Re-encrypt the existing master key
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&derived_key));
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let encrypted = cipher
+        .encrypt(nonce, master_key.as_ref())
+        .map_err(|e| format!("Master key re-encryption failed: {}", e))?;
+
+    let mut encrypted_payload = Vec::new();
+    encrypted_payload.extend_from_slice(&nonce_bytes);
+    encrypted_payload.extend_from_slice(&encrypted);
+
+    let key_file = MasterKeyFile {
+        salt: hex::encode(new_salt),
+        encrypted_master_key: hex::encode(encrypted_payload),
+        keyfile_required: Some(new_keyfile.is_some()),
+    };
+
+    let key_file_path = vault_dir.join("masterkey.json");
+    let key_file_content = serde_json::to_string_pretty(&key_file)
+        .map_err(|e| format!("serde_json::to_string_pretty failed: {}", e))?;
+
+    fs::write(&key_file_path, key_file_content.as_bytes())
+        .map_err(|e| format!("fs::write(masterkey.json) failed: {}", e))?;
+
+    Ok(())
+}
+
+pub fn export_recovery_key(master_key: &[u8; 32]) -> String {
+    let hex_key = hex::encode_upper(master_key);
+    hex_key
+        .as_bytes()
+        .chunks(4)
+        .map(|chunk| std::str::from_utf8(chunk).unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+pub fn unlock_vault_with_recovery_key(recovery_key: &str) -> Result<[u8; 32], String> {
+    let clean = recovery_key.replace(['-', ' ', '\n', '\t'], "");
+    let bytes = hex::decode(clean).map_err(|e| format!("Invalid recovery key format: {e}"))?;
+    if bytes.len() != 32 {
+        return Err("Recovery key must be 32 bytes (64 hex characters)".into());
+    }
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&bytes);
+    Ok(key)
+}
+
 pub fn unlock_vault(
     vault_dir: &Path,
     password: &str,
@@ -448,6 +516,54 @@ mod tests {
 
         // Cleanup
         let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_change_vault_password() {
+        let test_dir = std::env::temp_dir().join("cryptomator_test_change_pw");
+        if test_dir.exists() {
+            let _ = fs::remove_dir_all(&test_dir);
+        }
+
+        // 1. Create vault with initial password
+        create_vault(&test_dir, "initial_password", None).unwrap();
+        let key1 = unlock_vault(&test_dir, "initial_password", None).unwrap();
+        write_file(&test_dir, &key1, "notes.txt", b"important notes").unwrap();
+
+        // 2. Change password to new_password
+        change_vault_password(
+            &test_dir,
+            "initial_password",
+            None,
+            "new_secure_password",
+            None,
+        )
+        .unwrap();
+
+        // 3. Old password now fails
+        assert!(unlock_vault(&test_dir, "initial_password", None).is_err());
+
+        // 4. New password unlocks same master key and reads existing files!
+        let key2 = unlock_vault(&test_dir, "new_secure_password", None).unwrap();
+        assert_eq!(key1, key2);
+        assert_eq!(
+            read_file(&test_dir, &key2, "notes.txt").unwrap(),
+            b"important notes"
+        );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_recovery_key() {
+        let mut master_key = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut master_key);
+
+        let exported = export_recovery_key(&master_key);
+        assert!(exported.contains('-'));
+
+        let recovered = unlock_vault_with_recovery_key(&exported).unwrap();
+        assert_eq!(master_key, recovered);
     }
 
     #[test]

@@ -11,7 +11,10 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
   - Integrierter Pure-Rust Webserver via `axum` und `tokio`.
   - **Single-Binary**: Vollwertiges, responsives HTML5/CSS3/JS Single-Page-Dashboard direkt in die Binary einkompiliert (`src/web/index.html`).
   - Funktioniert im Browser auf Desktop, Tablet und Smartphone (Drag & Drop Upload, Download, Entsperren, Sperren, Textdateien erstellen).
-  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/unlock`, `/api/vaults/files`, etc.).
+  - **In-App Text-Editor**: Text- und Markdown-Dateien können direkt im Web-Interface betrachtet und bearbeitet werden.
+  - **Passwortänderung & Wiederherstellungsschlüssel**: Bequeme Passwortaktualisierung im laufenden Betrieb sowie Export und Entsperrung via 64-stelligem Recovery-Key.
+  - **Auto-Lock**: Automatische Sperrung und sichere Speicherbereinigung entsperrter Tresore nach 30 Minuten Inaktivität.
+  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, etc.).
 - **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal.
 - **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via Pure-Rust FUSE (ohne C `libfuse`-Bindung).
 - **CLI-Befehle**: Vollwertige Steuerung ohne GUI über Subcommands (`list`, `create`, `mount`, `tui`, `serve`).

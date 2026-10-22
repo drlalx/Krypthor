@@ -545,6 +545,19 @@
           </svg>
           Neue Textdatei
         </button>
+        <button class="btn btn-secondary btn-sm" onclick="openModal('changePasswordModal')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+          Passwort ändern
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openRecoveryKeyModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 2l-2 2m-1-1l-3 3m2-4l3 3M7 15l-4 4v3h3l4-4m-3-3l6-6a4.24 4.24 0 0 1 6 0 4.24 4.24 0 0 1 0 6l-6 6"></path>
+          </svg>
+          Recovery-Key
+        </button>
         <button class="btn btn-danger btn-sm" onclick="lockCurrentVault()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -649,8 +662,84 @@
         <button class="modal-close" onclick="closeModal('previewModal')">&times;</button>
       </div>
       <div class="preview-body" id="previewContent">Lade Vorschau...</div>
-      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
-        <button class="btn btn-secondary" onclick="closeModal('previewModal')">Schließen</button>
+      <textarea id="previewEditContent" class="preview-body" style="display: none; width: 100%; height: 55vh; resize: vertical; font-family: monospace;"></textarea>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+        <div id="previewEditActions">
+          <button class="btn btn-secondary btn-sm" id="btnToggleEdit" onclick="toggleEditMode()">
+            ✏️ Bearbeiten
+          </button>
+          <button class="btn btn-primary btn-sm" id="btnSaveEdit" style="display: none;" onclick="saveEditedFile()">
+            💾 Speichern
+          </button>
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('previewModal')">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Change Password Modal -->
+  <div class="modal-backdrop" id="changePasswordModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Passwort ändern</div>
+        <button class="modal-close" onclick="closeModal('changePasswordModal')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Aktuelles Passwort</label>
+        <input type="password" id="oldPasswordInput" class="form-input" placeholder="Bisheriges Passwort">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Neues Passwort</label>
+        <input type="password" id="newPasswordInput" class="form-input" placeholder="Mindestens 8 Zeichen">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Neues Passwort bestätigen</label>
+        <input type="password" id="newPasswordConfirmInput" class="form-input" placeholder="Passwort wiederholen">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeModal('changePasswordModal')">Abbrechen</button>
+        <button class="btn btn-primary" onclick="handleChangePassword()">Passwort aktualisieren</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recovery Key Modal -->
+  <div class="modal-backdrop" id="recoveryKeyModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Wiederherstellungsschlüssel</div>
+        <button class="modal-close" onclick="closeModal('recoveryKeyModal')">&times;</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+        Bewahre diesen Schlüssel sicher auf! Mit ihm kann der Tresor entschlüsselt werden, falls das Passwort vergessen wird.
+      </p>
+      <div style="background: var(--bg-base); border: 1px solid var(--border); padding: 14px; border-radius: var(--radius); font-family: monospace; font-size: 0.95rem; text-align: center; word-break: break-all; user-select: all;" id="recoveryKeyDisplay">
+        Lade Schlüssel...
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="copyRecoveryKey()">In Zwischenablage kopieren</button>
+        <button class="btn btn-primary" onclick="closeModal('recoveryKeyModal')">Fertig</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recover Vault Modal -->
+  <div class="modal-backdrop" id="recoverVaultModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Tresor wiederherstellen</div>
+        <button class="modal-close" onclick="closeModal('recoverVaultModal')">&times;</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">
+        Gib den Wiederherstellungsschlüssel ein, um den Tresor ohne Passwort zu entsperren.
+      </p>
+      <div class="form-group">
+        <label class="form-label">Wiederherstellungsschlüssel</label>
+        <input type="text" id="recoverKeyInput" class="form-input" placeholder="XXXX-XXXX-XXXX-..." style="font-family: monospace;">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeModal('recoverVaultModal')">Abbrechen</button>
+        <button class="btn btn-primary" onclick="handleRecoverVault()">Wiederherstellen & Entsperren</button>
       </div>
     </div>
   </div>
@@ -783,6 +872,11 @@
               </div>
               <button type="submit" class="btn btn-primary" style="width: 100%;">Tresor entsperren</button>
             </form>
+            <div style="margin-top: 14px; text-align: center;">
+              <button class="btn btn-secondary btn-sm" onclick="openModal('recoverVaultModal')">
+                Passwort vergessen? Wiederherstellungsschlüssel nutzen
+              </button>
+            </div>
           </div>
         `;
       } else {
@@ -1019,10 +1113,24 @@
       `;
     }
 
+    let currentPreviewFilePath = "";
+    let isEditing = false;
+
     async function openFilePreview(filePath) {
       if (!selectedVault) return;
+      currentPreviewFilePath = filePath;
+      isEditing = false;
       document.getElementById("previewTitle").innerText = filePath;
       const previewBox = document.getElementById("previewContent");
+      const editBox = document.getElementById("previewEditContent");
+      const editActions = document.getElementById("previewEditActions");
+      const btnToggle = document.getElementById("btnToggleEdit");
+      const btnSave = document.getElementById("btnSaveEdit");
+
+      previewBox.style.display = "block";
+      editBox.style.display = "none";
+      btnSave.style.display = "none";
+      btnToggle.innerText = "✏️ Bearbeiten";
       previewBox.innerHTML = "Lade Datei...";
       openModal("previewModal");
 
@@ -1030,16 +1138,186 @@
       const url = `/api/vaults/preview?vault_path=${encodeURIComponent(selectedVault.path)}&file_path=${encodeURIComponent(filePath)}`;
 
       if (isImage) {
+        editActions.style.display = "none";
         previewBox.innerHTML = `<div style="text-align: center;"><img src="${url}" style="max-width: 100%; max-height: 55vh; border-radius: var(--radius);"></div>`;
       } else {
+        editActions.style.display = "block";
         try {
           const res = await fetch(url);
           if (!res.ok) throw new Error("Vorschau konnte nicht geladen werden");
           const text = await res.text();
           previewBox.innerText = text;
+          editBox.value = text;
         } catch (err) {
           previewBox.innerText = "Fehler: " + err.message;
         }
+      }
+    }
+
+    function toggleEditMode() {
+      const previewBox = document.getElementById("previewContent");
+      const editBox = document.getElementById("previewEditContent");
+      const btnToggle = document.getElementById("btnToggleEdit");
+      const btnSave = document.getElementById("btnSaveEdit");
+
+      isEditing = !isEditing;
+      if (isEditing) {
+        previewBox.style.display = "none";
+        editBox.style.display = "block";
+        btnSave.style.display = "inline-flex";
+        btnToggle.innerText = "👁️ Vorschau";
+        editBox.focus();
+      } else {
+        previewBox.style.display = "block";
+        editBox.style.display = "none";
+        btnSave.style.display = "none";
+        btnToggle.innerText = "✏️ Bearbeiten";
+        previewBox.innerText = editBox.value;
+      }
+    }
+
+    async function saveEditedFile() {
+      if (!selectedVault || !currentPreviewFilePath) return;
+      const editBox = document.getElementById("previewEditContent");
+      const content = editBox.value;
+
+      const parts = currentPreviewFilePath.split("/");
+      const filename = parts.pop();
+      const folder = parts.join("/");
+
+      const blob = new Blob([content], { type: "text/plain" });
+      const file = new File([blob], filename);
+
+      const formData = new FormData();
+      formData.append("vault_path", selectedVault.path);
+      formData.append("folder", folder);
+      formData.append("file", file);
+
+      try {
+        const res = await fetch("/api/vaults/upload", {
+          method: "POST",
+          body: formData
+        });
+        if (res.ok) {
+          showToast(`"${filename}" gespeichert`, "success");
+          toggleEditMode();
+          loadVaultFiles();
+        } else {
+          const err = await res.json();
+          showToast(`Fehler beim Speichern: ${err.error}`, "error");
+        }
+      } catch (err) {
+        showToast(`Fehler: ${err}`, "error");
+      }
+    }
+
+    async function handleChangePassword() {
+      if (!selectedVault) return;
+      const oldPassword = document.getElementById("oldPasswordInput").value;
+      const newPassword = document.getElementById("newPasswordInput").value;
+      const confirmPassword = document.getElementById("newPasswordConfirmInput").value;
+
+      if (!oldPassword || !newPassword) {
+        showToast("Bitte alle Felder ausfüllen", "error");
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        showToast("Das neue Passwort stimmt nicht mit der Bestätigung überein", "error");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/vaults/change_password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vault_path: selectedVault.path,
+            old_password: oldPassword,
+            new_password: newPassword
+          })
+        });
+
+        if (res.ok) {
+          showToast("Passwort erfolgreich geändert! Bitte neu entsperren.", "success");
+          closeModal("changePasswordModal");
+          document.getElementById("oldPasswordInput").value = "";
+          document.getElementById("newPasswordInput").value = "";
+          document.getElementById("newPasswordConfirmInput").value = "";
+          await loadVaults();
+        } else {
+          const err = await res.json();
+          showToast(`Fehler: ${err.error}`, "error");
+        }
+      } catch (err) {
+        showToast(`Fehler: ${err}`, "error");
+      }
+    }
+
+    async function openRecoveryKeyModal() {
+      if (!selectedVault) return;
+      openModal("recoveryKeyModal");
+      const display = document.getElementById("recoveryKeyDisplay");
+      display.innerText = "Generiere Schlüssel...";
+
+      try {
+        const res = await fetch("/api/vaults/recovery_key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vault_path: selectedVault.path })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          display.innerText = data.recovery_key;
+        } else {
+          const err = await res.json();
+          display.innerText = `Fehler: ${err.error}`;
+        }
+      } catch (err) {
+        display.innerText = `Fehler: ${err}`;
+      }
+    }
+
+    function copyRecoveryKey() {
+      const display = document.getElementById("recoveryKeyDisplay");
+      const text = display.innerText;
+      if (!text || text.startsWith("Fehler") || text.startsWith("Generiere")) return;
+      navigator.clipboard.writeText(text).then(() => {
+        showToast("Wiederherstellungsschlüssel in Zwischenablage kopiert", "success");
+      }).catch(() => {
+        showToast("Kopieren nicht möglich", "error");
+      });
+    }
+
+    async function handleRecoverVault() {
+      if (!selectedVault) return;
+      const key = document.getElementById("recoverKeyInput").value.trim();
+      if (!key) {
+        showToast("Bitte Schlüssel eingeben", "error");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/vaults/recover", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: selectedVault.path,
+            recovery_key: key
+          })
+        });
+
+        if (res.ok) {
+          showToast("Tresor erfolgreich mit Recovery-Key entsperrt!", "success");
+          closeModal("recoverVaultModal");
+          document.getElementById("recoverKeyInput").value = "";
+          await loadVaults();
+        } else {
+          const err = await res.json();
+          showToast(`Wiederherstellung fehlgeschlagen: ${err.error}`, "error");
+        }
+      } catch (err) {
+        showToast(`Fehler: ${err}`, "error");
       }
     }
 
