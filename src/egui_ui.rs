@@ -75,6 +75,18 @@ struct CryptomatorApp {
     rename_target: String,
     rename_new_name: String,
 
+    // Password change & recovery modals
+    change_pw_modal_open: bool,
+    change_pw_old: String,
+    change_pw_new: String,
+    change_pw_confirm: String,
+
+    show_recovery_key_modal_open: bool,
+    displayed_recovery_key: String,
+
+    recover_modal_open: bool,
+    recover_key_input: String,
+
     // Throughput & activity stats
     throughput_history: VecDeque<f32>,
     active_read_speed: f32,
@@ -137,6 +149,17 @@ impl CryptomatorApp {
             rename_modal_open: false,
             rename_target: String::new(),
             rename_new_name: String::new(),
+
+            change_pw_modal_open: false,
+            change_pw_old: String::new(),
+            change_pw_new: String::new(),
+            change_pw_confirm: String::new(),
+
+            show_recovery_key_modal_open: false,
+            displayed_recovery_key: String::new(),
+
+            recover_modal_open: false,
+            recover_key_input: String::new(),
 
             throughput_history,
             active_read_speed: 0.0,
@@ -737,13 +760,67 @@ impl CryptomatorApp {
             });
 
             ui.add_space(20.0);
-            if ui
-                .add(Button::new("🔓 Unlock Vault").accent(Accent::Blue))
-                .clicked()
-            {
-                self.trigger_unlock(&vault_path);
-            }
+            ui.horizontal(|ui| {
+                if ui
+                    .add(Button::new("🔓 Unlock Vault").accent(Accent::Blue))
+                    .clicked()
+                {
+                    self.trigger_unlock(&vault_path);
+                }
+
+                if ui.button("🔑 Recover with Key").clicked() {
+                    self.recover_modal_open = true;
+                    self.recover_key_input.clear();
+                }
+            });
         });
+
+        if self.recover_modal_open {
+            ui.add_space(10.0);
+            Card::new()
+                .heading("Recover Vault with Key")
+                .show(ui, |ui| {
+                    ui.label("Enter the 64-character recovery key (with or without dashes):");
+                    ui.text_edit_singleline(&mut self.recover_key_input);
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add(Button::new("🔓 Recover & Unlock").accent(Accent::Green))
+                            .clicked()
+                        {
+                            let path = PathBuf::from(&vault_path);
+                            match vault::unlock_vault_with_recovery_key(&self.recover_key_input) {
+                                Ok(key) => match vault::list_files(&path, &key) {
+                                    Ok(_) => {
+                                        self.unlocked_vaults.insert(path, key);
+                                        self.view_mode = ViewMode::Unlocked;
+                                        self.recover_modal_open = false;
+                                        self.recover_key_input.clear();
+                                        self.status_message = Some((
+                                            "Vault recovered and unlocked!".to_string(),
+                                            false,
+                                        ));
+                                        self.refresh_vault_files();
+                                    }
+                                    Err(e) => {
+                                        self.status_message = Some((
+                                            format!("Recovery key failed to decrypt: {e}"),
+                                            true,
+                                        ));
+                                    }
+                                },
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Invalid recovery key: {e}"), true));
+                                }
+                            }
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.recover_modal_open = false;
+                        }
+                    });
+                });
+        }
     }
 
     fn trigger_unlock(&mut self, vault_path: &str) {
@@ -787,6 +864,20 @@ impl CryptomatorApp {
                     .clicked()
                 {
                     self.lock_active_vault();
+                }
+
+                if ui.button("🔑 Password").clicked() {
+                    self.change_pw_modal_open = true;
+                    self.change_pw_old.clear();
+                    self.change_pw_new.clear();
+                    self.change_pw_confirm.clear();
+                }
+
+                if ui.button("🛡️ Recovery Key").clicked()
+                    && let Some(key) = self.unlocked_vaults.get(&vault_path)
+                {
+                    self.displayed_recovery_key = vault::export_recovery_key(key);
+                    self.show_recovery_key_modal_open = true;
                 }
 
                 #[cfg(unix)]
@@ -1008,6 +1099,83 @@ impl CryptomatorApp {
                     }
                     if ui.button("Cancel").clicked() {
                         self.rename_modal_open = false;
+                    }
+                });
+            });
+            ui.add_space(10.0);
+        }
+
+        if self.change_pw_modal_open {
+            Card::new().heading("Change Vault Password").show(ui, |ui| {
+                ui.label("Current Password:");
+                ui.add(egui::TextEdit::singleline(&mut self.change_pw_old).password(true));
+                ui.label("New Password:");
+                ui.add(egui::TextEdit::singleline(&mut self.change_pw_new).password(true));
+                ui.label("Confirm New Password:");
+                ui.add(egui::TextEdit::singleline(&mut self.change_pw_confirm).password(true));
+
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(Button::new("Update Password").accent(Accent::Green))
+                        .clicked()
+                    {
+                        if self.change_pw_old.is_empty() || self.change_pw_new.is_empty() {
+                            self.status_message =
+                                Some(("Passwords cannot be empty.".to_string(), true));
+                        } else if self.change_pw_new != self.change_pw_confirm {
+                            self.status_message =
+                                Some(("New passwords do not match.".to_string(), true));
+                        } else {
+                            match vault::change_vault_password(
+                                vault_path,
+                                &self.change_pw_old,
+                                None,
+                                &self.change_pw_new,
+                                None,
+                            ) {
+                                Ok(_) => {
+                                    self.change_pw_modal_open = false;
+                                    self.change_pw_old.clear();
+                                    self.change_pw_new.clear();
+                                    self.change_pw_confirm.clear();
+                                    self.status_message =
+                                        Some(("Password updated successfully!".to_string(), false));
+                                }
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Password change failed: {e}"), true));
+                                }
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.change_pw_modal_open = false;
+                    }
+                });
+            });
+            ui.add_space(10.0);
+        }
+
+        if self.show_recovery_key_modal_open {
+            Card::new().heading("Vault Recovery Key").show(ui, |ui| {
+                ui.label("Keep this key safe! It allows unlocking your vault without a password.");
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(&self.displayed_recovery_key)
+                        .monospace()
+                        .size(13.0)
+                        .color(Color32::from_rgb(100, 200, 255)),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui.button("📋 Copy to Clipboard").clicked() {
+                        ui.ctx().copy_text(self.displayed_recovery_key.clone());
+                        self.status_message =
+                            Some(("Recovery key copied to clipboard!".to_string(), false));
+                    }
+                    if ui.button("Close").clicked() {
+                        self.show_recovery_key_modal_open = false;
                     }
                 });
             });

@@ -210,6 +210,104 @@ fn main() {
                     std::process::exit(1);
                 }
             }
+            cli::Commands::ChangePassword {
+                path,
+                old_password,
+                new_password,
+            } => {
+                let old_pwd = match old_password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter current password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let new_pwd = match new_password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter new password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::change_vault_password(path_buf, &old_pwd, None, &new_pwd, None) {
+                    Ok(_) => {
+                        println!("Vault password changed successfully for '{path}'!");
+                    }
+                    Err(e) => {
+                        eprintln!("Error changing password: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::RecoveryKey { path, password } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => {
+                        let rec_key = vault::export_recovery_key(&master_key);
+                        println!("Vault Recovery Key:");
+                        println!("  {rec_key}");
+                        println!(
+                            "\nStore this key safely! It can unlock your vault without a password."
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Error unlocking vault: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Recover { path, key } => {
+                let rec_key = match key {
+                    Some(k) => k,
+                    None => {
+                        print!("Enter recovery key: ");
+                        let _ = std::io::stdout().flush();
+                        let mut k = String::new();
+                        let _ = std::io::stdin().read_line(&mut k);
+                        k.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault_with_recovery_key(&rec_key) {
+                    Ok(master_key) => match vault::list_files(path_buf, &master_key) {
+                        Ok(files) => {
+                            println!("Vault successfully decrypted using recovery key!");
+                            println!("Found {} file(s) in vault:", files.len());
+                            for f in files {
+                                println!("  - {f}");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Decryption failed with recovery key: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Invalid recovery key: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 

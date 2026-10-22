@@ -55,4 +55,34 @@ pub enum Commands {
         #[arg(long)]
         password: Option<String>,
     },
+    /// Change the password of an existing vault
+    ChangePassword {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Current password (if not provided, you will be prompted)
+        #[arg(long)]
+        old_password: Option<String>,
+        /// New password (if not provided, you will be prompted)
+        #[arg(long)]
+        new_password: Option<String>,
+    },
+    /// Export the recovery key of a vault
+    RecoveryKey {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Verify or recover a vault using its recovery key
+    Recover {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// 64-character recovery key (if not provided, you will be prompted)
+        #[arg(short, long)]
+        key: Option<String>,
+    },
 }

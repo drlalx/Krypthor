@@ -102,6 +102,23 @@ Zum Aushängen des FUSE-Verzeichnisses:
 fusermount -u "/pfad/zum/mountpunkt"
 ```
 
+#### Passwort ändern
+```bash
+cargo run --release -- change-password --path "/pfad/zum/tresor"
+# Oder mit Parametern:
+cargo run --release -- change-password --path "/pfad/zum/tresor" --old-password "altes_pw" --new-password "neues_pw"
+```
+
+#### Wiederherstellungsschlüssel exportieren
+```bash
+cargo run --release -- recovery-key --path "/pfad/zum/tresor"
+```
+
+#### Tresor mit Wiederherstellungsschlüssel prüfen / entsperren
+```bash
+cargo run --release -- recover --path "/pfad/zum/tresor" --key "XXXX-XXXX-XXXX-..."
+```
+
 ## Projektstruktur
 
 - [`src/main.rs`](src/main.rs): Einstiegspunkt, CLI-Argument-Parsing (`clap`) und Befehls-Dispatching.
