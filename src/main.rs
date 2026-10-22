@@ -7,7 +7,7 @@ mod fs_fuse;
 mod tui_app;
 mod vault;
 #[cfg(feature = "web")]
-mod web_server;
+pub mod web_server;
 
 use clap::Parser;
 use serde::{Deserialize, Serialize};

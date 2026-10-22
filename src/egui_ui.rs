@@ -77,6 +77,11 @@ struct CryptomatorApp {
     active_read_speed: f32,
     active_write_speed: f32,
     last_throughput_update: Instant,
+
+    #[cfg(feature = "web")]
+    web_server_running: bool,
+    #[cfg(feature = "web")]
+    web_server_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 #[cfg(feature = "egui-ui")]
@@ -131,6 +136,11 @@ impl CryptomatorApp {
             active_read_speed: 0.0,
             active_write_speed: 0.0,
             last_throughput_update: Instant::now(),
+
+            #[cfg(feature = "web")]
+            web_server_running: false,
+            #[cfg(feature = "web")]
+            web_server_shutdown: None,
         }
     }
 
@@ -466,9 +476,40 @@ impl CryptomatorApp {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("🌐").size(13.0));
-                    ui.label(RichText::new("Web Control").size(11.0).strong());
+                    let status_text = if self.web_server_running {
+                        "Web Server (Aktiv)"
+                    } else {
+                        "Web Server (Aus)"
+                    };
+                    ui.label(RichText::new(status_text).size(11.0).strong());
+
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.hyperlink_to("Open Web UI ↗", "http://127.0.0.1:8080");
+                        if self.web_server_running {
+                            if ui.button("⏹ Stop").clicked() {
+                                if let Some(tx) = self.web_server_shutdown.take() {
+                                    let _ = tx.send(());
+                                }
+                                self.web_server_running = false;
+                                self.status_message = Some(("Web server stopped.".into(), false));
+                            }
+                            ui.hyperlink_to("Öffnen ↗", "http://127.0.0.1:8080");
+                        } else if ui.button("▶ Starten").clicked() {
+                            let (tx, rx) = tokio::sync::oneshot::channel();
+                            self.web_server_shutdown = Some(tx);
+                            self.web_server_running = true;
+                            std::thread::spawn(move || {
+                                if let Ok(rt) = tokio::runtime::Runtime::new() {
+                                    let _ =
+                                        rt.block_on(crate::web_server::run_server_with_shutdown(
+                                            "127.0.0.1",
+                                            8080,
+                                            rx,
+                                        ));
+                                }
+                            });
+                            self.status_message =
+                                Some(("Web server started on http://127.0.0.1:8080".into(), false));
+                        }
                     });
                 });
             }
@@ -988,19 +1029,6 @@ impl CryptomatorApp {
                         }
                     }
                 }
-            }
-
-            #[cfg(feature = "web")]
-            {
-                ui.separator();
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("🌐").size(13.0));
-                    ui.label(RichText::new("Web Control").size(11.0).strong());
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.hyperlink_to("Open Web UI ↗", "http://127.0.0.1:8080");
-                    });
-                });
             }
         });
     }

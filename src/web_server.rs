@@ -487,6 +487,19 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 }
 
 pub async fn run_server(host: &str, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        let _ = tx.send(());
+    });
+    run_server_with_shutdown(host, port, rx).await
+}
+
+pub async fn run_server_with_shutdown(
+    host: &str,
+    port: u16,
+    shutdown_rx: tokio::sync::oneshot::Receiver<()>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(AppState::default());
     let app = build_router(state);
 
@@ -500,7 +513,11 @@ pub async fn run_server(host: &str, port: u16) -> Result<(), Box<dyn std::error:
     println!("╚═══════════════════════════════════════════════════════════════╝");
     println!("Press Ctrl+C to stop the daemon.");
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        })
+        .await?;
     Ok(())
 }
 

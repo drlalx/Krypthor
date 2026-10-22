@@ -27,7 +27,7 @@ ratatui = { version = "0.26", optional = true }
 crossterm = { version = "0.27", optional = true }
 egui = { version = "0.36", optional = true }
 egui-elegance = { version = "0.16", optional = true }
-tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"], optional = true }
+tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"], optional = true }
 axum = { version = "0.8", features = ["multipart", "tokio", "json"], optional = true }
 tower = { version = "0.5", features = ["util"], optional = true }
 tower-http = { version = "0.6", features = ["cors"], optional = true }
