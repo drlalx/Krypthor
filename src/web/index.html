@@ -154,6 +154,23 @@
     .vault-delete-btn:hover {
       color: var(--danger);
     }
+    .vault-rename-btn {
+      position: absolute;
+      right: 32px;
+      bottom: 10px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+    }
+    .vault-item:hover .vault-rename-btn {
+      opacity: 1;
+    }
+    .vault-rename-btn:hover {
+      color: var(--primary);
+    }
 
     .status-dot {
       width: 8px;
@@ -525,6 +542,14 @@
       </div>
       <div id="topActions" style="display: none; gap: 8px; flex-wrap: wrap; align-items: center;">
         <input type="text" id="fileFilterInput" class="form-input" placeholder="🔍 Suchen..." style="width: 140px; padding: 5px 8px; font-size: 0.8rem; height: 32px;" oninput="handleFilterInput(this.value)">
+        <button class="btn btn-secondary btn-sm" onclick="loadVaultFiles()" title="Dateiliste neu laden">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 4v6h-6"></path>
+            <path d="M1 20v-6h6"></path>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+          </svg>
+          Aktualisieren
+        </button>
         <input type="file" id="fileUploadInput" multiple style="display: none;" onchange="handleFileUpload(this.files)">
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('fileUploadInput').click()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -824,6 +849,12 @@
             <span class="status-dot ${v.is_unlocked ? 'unlocked' : 'locked'}" title="${v.is_unlocked ? 'Entsperrt' : 'Gesperrt'}"></span>
           </div>
           <div class="vault-item-path">${escapeHtml(v.path)}</div>
+          <button class="vault-rename-btn" title="Tresor umbenennen" onclick="event.stopPropagation(); handleRenameVaultPrompt('${encodeURIComponent(v.path)}', '${escapeHtml(v.name)}')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
           <button class="vault-delete-btn" title="Aus Liste entfernen" onclick="event.stopPropagation(); handleRemoveVault('${encodeURIComponent(v.path)}')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <polyline points="3 6 5 6 21 6"></polyline>
@@ -989,6 +1020,33 @@
         }
       } catch (err) {
         showToast("Fehler beim Entfernen: " + err, "error");
+      }
+    }
+
+    async function handleRenameVaultPrompt(encodedPath, currentName) {
+      const path = decodeURIComponent(encodedPath);
+      const newName = prompt(`Neuer Anzeigename für Tresor:`, currentName);
+      if (!newName || newName.trim() === currentName) return;
+
+      try {
+        const res = await fetch("/api/vaults/rename_vault", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path: path,
+            new_name: newName.trim()
+          })
+        });
+
+        if (res.ok) {
+          showToast("Tresor erfolgreich umbenannt", "success");
+          await loadVaults();
+        } else {
+          const err = await res.json();
+          showToast(`Fehler: ${err.error}`, "error");
+        }
+      } catch (err) {
+        showToast(`Fehler: ${err}`, "error");
       }
     }
 

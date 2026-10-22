@@ -110,6 +110,12 @@ pub struct RemoveVaultRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct RenameVaultRequest {
+    pub path: String,
+    pub new_name: String,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct MkdirRequest {
     pub vault_path: String,
     pub folder_path: String,
@@ -516,6 +522,46 @@ async fn remove_vault_handler(
     })
 }
 
+async fn rename_vault_handler(
+    Json(payload): Json<RenameVaultRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let trimmed = payload.new_name.trim();
+    if trimmed.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Vault name cannot be empty".into(),
+            }),
+        ));
+    }
+
+    let mut saved = load_saved_vaults();
+    let mut found = false;
+    for v in &mut saved {
+        if v.path == payload.path {
+            v.name = trimmed.to_string();
+            found = true;
+            break;
+        }
+    }
+
+    if !found {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "Vault not found in registered list".into(),
+            }),
+        ));
+    }
+
+    save_saved_vaults(&saved);
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: format!("Vault renamed to '{trimmed}'"),
+    }))
+}
+
 async fn mkdir_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<MkdirRequest>,
@@ -699,6 +745,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/recover", post(recover_vault_handler))
         .route("/api/vaults/lock", post(lock_vault_handler))
         .route("/api/vaults/remove", post(remove_vault_handler))
+        .route("/api/vaults/rename_vault", post(rename_vault_handler))
         .route("/api/vaults/files", get(list_files_handler))
         .route("/api/vaults/stats", get(vault_stats_handler))
         .route("/api/vaults/download", get(download_file_handler))
@@ -1091,6 +1138,25 @@ mod tests {
                     .uri("/api/vaults/unlock")
                     .header("content-type", "application/json")
                     .body(Body::from(serde_json::to_vec(&unlock_new_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 9. Rename vault via API
+        let rename_v_req = RenameVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+            new_name: "RenamedVault".to_string(),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/rename_vault")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&rename_v_req).unwrap()))
                     .unwrap(),
             )
             .await
