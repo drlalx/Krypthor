@@ -2,26 +2,65 @@
 name = "cryptomator_rs"
 version = "0.1.0"
 edition = "2024"
+authors = ["Alexander Drichel"]
+license = "MIT"
+description = "Modern, memory-safe Cryptomator vault implementation in Rust with egui GUI and Ratatui TUI."
+
+[features]
+default = ["egui-ui", "tui"]
+egui-ui = ["dep:eframe", "dep:egui", "dep:egui-elegance"]
+tui = ["dep:ratatui", "dep:crossterm"]
 
 [dependencies]
-slint = "^1.17.0"
-serde = { version = "^1.0", features = ["derive"] }
-serde_json = "^1.0"
-scrypt = { version = "^0.11", features = ["simple"] }
-aes-gcm = "^0.10"
-base64 = "^0.22"
-hex = "^0.4"
-rand = "^0.8"
-sha2 = "^0.10"
-rfd = "^0.14"
-fuser = "^0.14.0"
-libc = "^0.2"
-clap = { version = "^4", features = ["derive"] }
-ratatui = "^0.26"
-crossterm = "^0.27"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+scrypt = { version = "0.11", features = ["simple"] }
+aes-gcm = "0.10"
+base64 = "0.22"
+hex = "0.4"
+rand = "0.8"
+sha2 = "0.10"
+rfd = "0.14"
+clap = { version = "4", features = ["derive"] }
+ratatui = { version = "0.26", optional = true }
+crossterm = { version = "0.27", optional = true }
+egui = { version = "0.36", optional = true }
+egui-elegance = { version = "0.16", optional = true }
 
-[build-dependencies]
-slint-build = "^1.17.0"
+[target.'cfg(unix)'.dependencies]
+fuser = "0.14"
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies.eframe]
+version = "0.36"
+default-features = false
+features = ["glow"]
+optional = true
+
+[target.'cfg(target_os = "linux")'.dependencies.eframe]
+version = "0.36"
+default-features = false
+features = ["glow", "wayland", "x11", "default_fonts"]
+optional = true
+
+[target.'cfg(target_os = "macos")'.dependencies.eframe]
+version = "0.36"
+default-features = false
+features = ["glow", "default_fonts"]
+optional = true
+
+[lints.clippy]
+panic = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+panic_in_result_fn = "deny"
+unreachable = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[patch.crates-io]
+# Temporary workaround for mixed-DPI window dragging; remove after the fix ships in winit 0.30.x.
+winit = { git = "https://github.com/LunaticGhoulPiano/winit", rev = "39c4009c41e5977d779cf8a365792c8153ca77c5" }
 
 [profile.dev]
 opt-level = 0
@@ -30,7 +69,6 @@ codegen-units = 256
 incremental = true
 split-debuginfo = "unpacked"
 
-# Keep dependencies optimized (e.g. scrypt, aes-gcm, slint) so the app runs smoothly
 [profile.dev.package."*"]
 opt-level = 3
 
@@ -40,4 +78,3 @@ codegen-units = 16
 lto = false
 incremental = true
 strip = "debuginfo"
-

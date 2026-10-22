@@ -1,16 +1,16 @@
-use std::path::Path;
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
+use rand::RngCore;
+use scrypt::{Params, scrypt};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Read;
-use serde::{Serialize, Deserialize};
-use aes_gcm::{Aes256Gcm, Key, Nonce};
-use aes_gcm::aead::{Aead, KeyInit};
-use scrypt::{Params, scrypt};
-use rand::RngCore;
-use sha2::{Sha256, Digest};
+use std::path::Path;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MasterKeyFile {
-    pub salt: String,                  // Hex encoded salt
+    pub salt: String,                 // Hex encoded salt
     pub encrypted_master_key: String, // Hex encoded (nonce + ciphertext)
     pub keyfile_required: Option<bool>,
 }
@@ -20,26 +20,28 @@ pub fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], String> {
     // Standard parameters: N=16384 (log_n=14), r=8, p=1, len=32
     let params = Params::new(14, 8, 1, 32).map_err(|e| e.to_string())?;
     let mut derived_key = [0u8; 32];
-    scrypt(password.as_bytes(), salt, &params, &mut derived_key)
-        .map_err(|e| e.to_string())?;
+    scrypt(password.as_bytes(), salt, &params, &mut derived_key).map_err(|e| e.to_string())?;
     Ok(derived_key)
 }
 
 // Derive final key combining passphrase and optional keyfile
-pub fn derive_final_key(password: &str, salt: &[u8], keyfile_path: Option<&Path>) -> Result<[u8; 32], String> {
+pub fn derive_final_key(
+    password: &str,
+    salt: &[u8],
+    keyfile_path: Option<&Path>,
+) -> Result<[u8; 32], String> {
     let base_key = derive_key(password, salt)?;
     if let Some(path) = keyfile_path {
-        let keyfile_bytes = fs::read(path)
-            .map_err(|e| format!("Failed to read keyfile: {}", e))?;
+        let keyfile_bytes = fs::read(path).map_err(|e| format!("Failed to read keyfile: {}", e))?;
         let mut hasher = Sha256::new();
         hasher.update(&keyfile_bytes);
         let keyfile_hash = hasher.finalize();
-        
+
         let mut final_hasher = Sha256::new();
         final_hasher.update(&base_key);
         final_hasher.update(&keyfile_hash);
         let final_hash = final_hasher.finalize();
-        
+
         let mut final_key = [0u8; 32];
         final_key.copy_from_slice(&final_hash);
         Ok(final_key)
@@ -47,8 +49,6 @@ pub fn derive_final_key(password: &str, salt: &[u8], keyfile_path: Option<&Path>
         Ok(base_key)
     }
 }
-
-
 
 // Decrypt filename by trying to match or decrypt using candidate paths, or since we list files,
 // we can store the plain filename in the metadata header of the file!
@@ -75,57 +75,69 @@ pub fn derive_final_key(password: &str, salt: &[u8], keyfile_path: Option<&Path>
 // [12 bytes nonce] [4 bytes path_len] [encrypted_path] [encrypted_content]
 // Let's write the code for this binary format! It is clean, efficient, and professional.
 
-pub fn encrypt_file_payload(master_key: &[u8; 32], relative_path: &str, content: &[u8]) -> Result<Vec<u8>, String> {
+pub fn encrypt_file_payload(
+    master_key: &[u8; 32],
+    relative_path: &str,
+    content: &[u8],
+) -> Result<Vec<u8>, String> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(master_key));
-    
+
     // Generate a random 12-byte nonce
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
-    
+
     // Encrypt the path
-    let encrypted_path = cipher.encrypt(nonce, relative_path.as_bytes())
+    let encrypted_path = cipher
+        .encrypt(nonce, relative_path.as_bytes())
         .map_err(|e| format!("Path encryption failed: {}", e))?;
-        
+
     // Encrypt the content
-    let encrypted_content = cipher.encrypt(nonce, content)
+    let encrypted_content = cipher
+        .encrypt(nonce, content)
         .map_err(|e| format!("Content encryption failed: {}", e))?;
-        
+
     let mut payload = Vec::new();
     payload.extend_from_slice(&nonce_bytes);
     payload.extend_from_slice(&(encrypted_path.len() as u32).to_be_bytes());
     payload.extend_from_slice(&encrypted_path);
     payload.extend_from_slice(&encrypted_content);
-    
+
     Ok(payload)
 }
 
-pub fn decrypt_file_payload(master_key: &[u8; 32], payload: &[u8]) -> Result<(String, Vec<u8>), String> {
+pub fn decrypt_file_payload(
+    master_key: &[u8; 32],
+    payload: &[u8],
+) -> Result<(String, Vec<u8>), String> {
     if payload.len() < 16 {
         return Err("Payload too short".to_string());
     }
-    
+
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(master_key));
-    
+
     let nonce_bytes = &payload[0..12];
     let nonce = Nonce::from_slice(nonce_bytes);
-    
-    let path_len = u32::from_be_bytes([payload[12], payload[13], payload[14], payload[15]]) as usize;
+
+    let path_len =
+        u32::from_be_bytes([payload[12], payload[13], payload[14], payload[15]]) as usize;
     if payload.len() < 16 + path_len {
         return Err("Invalid payload length".to_string());
     }
-    
+
     let encrypted_path = &payload[16..16 + path_len];
     let encrypted_content = &payload[16 + path_len..];
-    
-    let decrypted_path_bytes = cipher.decrypt(nonce, encrypted_path)
+
+    let decrypted_path_bytes = cipher
+        .decrypt(nonce, encrypted_path)
         .map_err(|e| format!("Path decryption failed: {}", e))?;
     let relative_path = String::from_utf8(decrypted_path_bytes)
         .map_err(|e| format!("Invalid UTF-8 in decrypted path: {}", e))?;
-        
-    let decrypted_content = cipher.decrypt(nonce, encrypted_content)
+
+    let decrypted_content = cipher
+        .decrypt(nonce, encrypted_content)
         .map_err(|e| format!("Content decryption failed: {}", e))?;
-        
+
     Ok((relative_path, decrypted_content))
 }
 
@@ -139,86 +151,104 @@ pub fn get_physical_filename(master_key: &[u8; 32], relative_path: &str) -> Stri
     format!("{}.c9r", hex::encode(result))
 }
 
-pub fn create_vault(vault_dir: &Path, password: &str, keyfile_path: Option<&Path>) -> Result<(), String> {
+pub fn create_vault(
+    vault_dir: &Path,
+    password: &str,
+    keyfile_path: Option<&Path>,
+) -> Result<(), String> {
     println!("[DEBUG] create_vault: Starting for dir: {:?}", vault_dir);
-    
+
     if !vault_dir.exists() {
         println!("[DEBUG] create_vault: Creating vault_dir...");
-        fs::create_dir_all(vault_dir).map_err(|e| format!("fs::create_dir_all(vault_dir) failed: {}", e))?;
+        fs::create_dir_all(vault_dir)
+            .map_err(|e| format!("fs::create_dir_all(vault_dir) failed: {}", e))?;
     }
-    
+
     let d_dir = vault_dir.join("d");
     if !d_dir.exists() {
         println!("[DEBUG] create_vault: Creating d_dir: {:?}", d_dir);
-        fs::create_dir_all(&d_dir).map_err(|e| format!("fs::create_dir_all(d_dir) failed: {}", e))?;
+        fs::create_dir_all(&d_dir)
+            .map_err(|e| format!("fs::create_dir_all(d_dir) failed: {}", e))?;
     }
-    
+
     // Generate salt
     println!("[DEBUG] create_vault: Generating salt...");
     let mut salt = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut salt);
-    
+
     // Derive key combining password and keyfile
     println!("[DEBUG] create_vault: Deriving key...");
     let derived_key = derive_final_key(password, &salt, keyfile_path)?;
-    
+
     // Generate master key
     println!("[DEBUG] create_vault: Generating master key...");
     let mut master_key = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut master_key);
-    
+
     // Encrypt master key with derived key
     println!("[DEBUG] create_vault: Encrypting master key...");
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&derived_key));
     let mut nonce_bytes = [0u8; 12];
     rand::thread_rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
-    
-    let encrypted = cipher.encrypt(nonce, master_key.as_ref())
+
+    let encrypted = cipher
+        .encrypt(nonce, master_key.as_ref())
         .map_err(|e| format!("Master key encryption failed: {}", e))?;
-        
+
     let mut encrypted_payload = Vec::new();
     encrypted_payload.extend_from_slice(&nonce_bytes);
     encrypted_payload.extend_from_slice(&encrypted);
-    
+
     let key_file = MasterKeyFile {
         salt: hex::encode(salt),
         encrypted_master_key: hex::encode(encrypted_payload),
         keyfile_required: Some(keyfile_path.is_some()),
     };
-    
+
     let key_file_path = vault_dir.join("masterkey.json");
     println!("[DEBUG] create_vault: Serializing masterkey.json content...");
     let key_file_content = serde_json::to_string_pretty(&key_file)
         .map_err(|e| format!("serde_json::to_string_pretty failed: {}", e))?;
-    
-    println!("[DEBUG] create_vault: Writing masterkey.json at {:?}", key_file_path);
+
+    println!(
+        "[DEBUG] create_vault: Writing masterkey.json at {:?}",
+        key_file_path
+    );
     fs::write(&key_file_path, key_file_content.as_bytes())
         .map_err(|e| format!("fs::write(masterkey.json) failed: {}", e))?;
-    
+
     // Create an empty vault config
     let vault_config_path = vault_dir.join("vault.json");
-    println!("[DEBUG] create_vault: Writing vault.json at {:?}", vault_config_path);
+    println!(
+        "[DEBUG] create_vault: Writing vault.json at {:?}",
+        vault_config_path
+    );
     fs::write(&vault_config_path, b"{\"version\": 8}")
         .map_err(|e| format!("fs::write(vault.json) failed: {}", e))?;
-    
+
     println!("[DEBUG] create_vault: Finished successfully!");
     Ok(())
 }
 
-pub fn unlock_vault(vault_dir: &Path, password: &str, keyfile_path: Option<&Path>) -> Result<[u8; 32], String> {
+pub fn unlock_vault(
+    vault_dir: &Path,
+    password: &str,
+    keyfile_path: Option<&Path>,
+) -> Result<[u8; 32], String> {
     let key_file_path = vault_dir.join("masterkey.json");
     if !key_file_path.exists() {
         return Err("masterkey.json not found".to_string());
     }
-    
+
     let mut file = File::open(key_file_path).map_err(|e| e.to_string())?;
     let mut content = String::new();
-    file.read_to_string(&mut content).map_err(|e| e.to_string())?;
-    
+    file.read_to_string(&mut content)
+        .map_err(|e| e.to_string())?;
+
     let key_file: MasterKeyFile = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse masterkey.json: {}", e))?;
-        
+
     let keyfile_req = key_file.keyfile_required.unwrap_or(false);
     if keyfile_req && keyfile_path.is_none() {
         return Err("Keyfile is required for this vault.".to_string());
@@ -226,69 +256,82 @@ pub fn unlock_vault(vault_dir: &Path, password: &str, keyfile_path: Option<&Path
     if !keyfile_req && keyfile_path.is_some() {
         return Err("This vault does not use a keyfile.".to_string());
     }
-    
-    let salt = hex::decode(&key_file.salt)
-        .map_err(|e| format!("Invalid salt encoding: {}", e))?;
-        
+
+    let salt = hex::decode(&key_file.salt).map_err(|e| format!("Invalid salt encoding: {}", e))?;
+
     let derived_key = derive_final_key(password, &salt, keyfile_path)?;
-    
+
     let encrypted_payload = hex::decode(&key_file.encrypted_master_key)
         .map_err(|e| format!("Invalid encrypted master key encoding: {}", e))?;
-        
+
     if encrypted_payload.len() < 12 {
         return Err("Invalid encrypted master key payload".to_string());
     }
-    
+
     let nonce_bytes = &encrypted_payload[0..12];
     let ciphertext = &encrypted_payload[12..];
-    
+
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&derived_key));
     let nonce = Nonce::from_slice(nonce_bytes);
-    
-    let decrypted = cipher.decrypt(nonce, ciphertext)
+
+    let decrypted = cipher
+        .decrypt(nonce, ciphertext)
         .map_err(|_| "Incorrect password or keyfile".to_string())?;
-        
+
     if decrypted.len() != 32 {
         return Err("Decrypted key size is incorrect".to_string());
     }
-    
+
     let mut master_key = [0u8; 32];
     master_key.copy_from_slice(&decrypted);
-    
+
     Ok(master_key)
 }
 
-pub fn write_file(vault_dir: &Path, master_key: &[u8; 32], relative_path: &str, content: &[u8]) -> Result<(), String> {
+pub fn write_file(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
+    content: &[u8],
+) -> Result<(), String> {
     let phys_name = get_physical_filename(master_key, relative_path);
     let phys_path = vault_dir.join("d").join(phys_name);
-    
+
     let payload = encrypt_file_payload(master_key, relative_path, content)?;
-    
+
     fs::write(phys_path, &payload).map_err(|e| e.to_string())?;
-    
+
     Ok(())
 }
 
-pub fn read_file(vault_dir: &Path, master_key: &[u8; 32], relative_path: &str) -> Result<Vec<u8>, String> {
+pub fn read_file(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
+) -> Result<Vec<u8>, String> {
     let phys_name = get_physical_filename(master_key, relative_path);
     let phys_path = vault_dir.join("d").join(phys_name);
-    
+
     if !phys_path.exists() {
         return Err("File not found in vault".to_string());
     }
-    
+
     let mut file = File::open(phys_path).map_err(|e| e.to_string())?;
     let mut payload = Vec::new();
     file.read_to_end(&mut payload).map_err(|e| e.to_string())?;
-    
+
     let (_, content) = decrypt_file_payload(master_key, &payload)?;
     Ok(content)
 }
 
-pub fn delete_file(vault_dir: &Path, master_key: &[u8; 32], relative_path: &str) -> Result<(), String> {
+pub fn delete_file(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
+) -> Result<(), String> {
     let phys_name = get_physical_filename(master_key, relative_path);
     let phys_path = vault_dir.join("d").join(phys_name);
-    
+
     if phys_path.exists() {
         fs::remove_file(phys_path).map_err(|e| e.to_string())?;
     }
@@ -300,7 +343,7 @@ pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>
     if !d_dir.exists() {
         return Ok(Vec::new());
     }
-    
+
     let mut files = Vec::new();
     for entry in fs::read_dir(d_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
@@ -315,7 +358,7 @@ pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>
             }
         }
     }
-    
+
     // Sort files alphabetically
     files.sort();
     Ok(files)
@@ -323,6 +366,7 @@ pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
     use super::*;
     use std::fs;
 
@@ -436,7 +480,8 @@ mod tests {
         let encrypted = encrypt_file_payload(&master_key, path, content).unwrap();
         assert!(encrypted.len() > 16);
 
-        let (decrypted_path, decrypted_content) = decrypt_file_payload(&master_key, &encrypted).unwrap();
+        let (decrypted_path, decrypted_content) =
+            decrypt_file_payload(&master_key, &encrypted).unwrap();
         assert_eq!(decrypted_path, path);
         assert_eq!(decrypted_content, content);
     }

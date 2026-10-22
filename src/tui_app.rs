@@ -1,24 +1,24 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::io;
-use std::time::Duration;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
+    Terminal,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
-    Terminal,
 };
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use crate::vault;
 use crate::fs_fuse;
+use crate::vault;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct SavedVault {
@@ -62,7 +62,7 @@ struct TuiApp {
     input_value: String,
     status_message: String,
     status_is_error: bool,
-    
+
     // Create Wizard state
     create_name: String,
     create_path: String,
@@ -132,7 +132,8 @@ impl TuiApp {
         match vault::unlock_vault(&vault_path, password, None) {
             Ok(master_key) => {
                 // Setup and create FUSE mount directory in user home: ~/CryptomatorMounts/<vault_name>
-                let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/adrichel".to_string());
+                let home_dir =
+                    std::env::var("HOME").unwrap_or_else(|_| "/home/adrichel".to_string());
                 let mount_base = Path::new(&home_dir).join("CryptomatorMounts");
                 let mount_dir = mount_base.join(&vault.name);
 
@@ -143,13 +144,14 @@ impl TuiApp {
                 }
 
                 let fs_impl = fs_fuse::CryptomatorFS::new(vault_path.clone(), master_key);
-                let mount_options = vec![
-                    fuser::MountOption::CUSTOM("fsname=cryptomator-rs".to_string()),
-                ];
+                let mount_options = vec![fuser::MountOption::CUSTOM(
+                    "fsname=cryptomator-rs".to_string(),
+                )];
 
                 match fuser::spawn_mount2(fs_impl, &mount_dir, &mount_options) {
                     Ok(session) => {
-                        self.active_mounts.insert(vault_path, (session, mount_dir.clone()));
+                        self.active_mounts
+                            .insert(vault_path, (session, mount_dir.clone()));
                         self.status_message = format!("Vault unlocked! Mounted at {:?}", mount_dir);
                         self.status_is_error = false;
                     }
@@ -184,12 +186,14 @@ impl TuiApp {
         let path = PathBuf::from(path_str.trim());
         let mk_path = path.join("masterkey.json");
         if !mk_path.exists() {
-            self.status_message = "Selected directory is not a valid vault (masterkey.json missing)".to_string();
+            self.status_message =
+                "Selected directory is not a valid vault (masterkey.json missing)".to_string();
             self.status_is_error = true;
             return;
         }
 
-        let name = path.file_name()
+        let name = path
+            .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Existing Vault".to_string());
 
@@ -346,31 +350,34 @@ fn run_loop<B: ratatui::backend::Backend>(
                         }
                         _ => {}
                     },
-                    InputMode::CreateNameInput => match key.code {
-                        KeyCode::Enter => {
-                            app.create_name = app.input_value.clone();
-                            app.input_value.clear();
-                            app.input_mode = InputMode::CreatePathInput;
-                            app.status_message = "[Step 2/3] Enter absolute directory path to create vault folder:".to_string();
+                    InputMode::CreateNameInput => {
+                        match key.code {
+                            KeyCode::Enter => {
+                                app.create_name = app.input_value.clone();
+                                app.input_value.clear();
+                                app.input_mode = InputMode::CreatePathInput;
+                                app.status_message = "[Step 2/3] Enter absolute directory path to create vault folder:".to_string();
+                            }
+                            KeyCode::Esc => {
+                                app.input_mode = InputMode::Normal;
+                                app.status_message = "Creation wizard cancelled.".to_string();
+                            }
+                            KeyCode::Char(c) => {
+                                app.input_value.push(c);
+                            }
+                            KeyCode::Backspace => {
+                                app.input_value.pop();
+                            }
+                            _ => {}
                         }
-                        KeyCode::Esc => {
-                            app.input_mode = InputMode::Normal;
-                            app.status_message = "Creation wizard cancelled.".to_string();
-                        }
-                        KeyCode::Char(c) => {
-                            app.input_value.push(c);
-                        }
-                        KeyCode::Backspace => {
-                            app.input_value.pop();
-                        }
-                        _ => {}
-                    },
+                    }
                     InputMode::CreatePathInput => match key.code {
                         KeyCode::Enter => {
                             app.create_path = app.input_value.clone();
                             app.input_value.clear();
                             app.input_mode = InputMode::CreatePasswordInput;
-                            app.status_message = "[Step 3/3] Enter master password for the new vault:".to_string();
+                            app.status_message =
+                                "[Step 3/3] Enter master password for the new vault:".to_string();
                         }
                         KeyCode::Esc => {
                             app.input_mode = InputMode::Normal;
@@ -389,7 +396,11 @@ fn run_loop<B: ratatui::backend::Backend>(
                             let pwd = app.input_value.clone();
                             app.input_value.clear();
                             app.input_mode = InputMode::Normal;
-                            app.create_vault(&app.create_name.clone(), &app.create_path.clone(), &pwd);
+                            app.create_vault(
+                                &app.create_name.clone(),
+                                &app.create_path.clone(),
+                                &pwd,
+                            );
                         }
                         KeyCode::Esc => {
                             app.input_mode = InputMode::Normal;
@@ -433,8 +444,14 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(theme_cyan));
     let title_paragraph = Paragraph::new(Line::from(vec![
-        Span::styled("🛡️  CRYPTOMATOR RS  ", Style::default().fg(theme_cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Terminal Interface v0.1.0", Style::default().fg(Color::DarkGray)),
+        Span::styled(
+            "🛡️  CRYPTOMATOR RS  ",
+            Style::default().fg(theme_cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            "Terminal Interface v0.1.0",
+            Style::default().fg(Color::DarkGray),
+        ),
     ]))
     .block(title_block);
     f.render_widget(title_paragraph, chunks[0]);
@@ -455,11 +472,19 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .map(|v| {
             let path = PathBuf::from(&v.path);
             let is_unlocked = app.active_mounts.contains_key(&path);
-            
+
             let status_prefix = if is_unlocked {
-                Span::styled("🔓 UNLOCKED ", Style::default().fg(theme_green).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "🔓 UNLOCKED ",
+                    Style::default()
+                        .fg(theme_green)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
-                Span::styled("🔒 LOCKED   ", Style::default().fg(theme_red).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "🔒 LOCKED   ",
+                    Style::default().fg(theme_red).add_modifier(Modifier::BOLD),
+                )
             };
 
             let name = Span::styled(v.name.clone(), Style::default().fg(Color::White));
@@ -473,15 +498,13 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .style(Style::default().bg(theme_dark_bg))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
-        
-    let sidebar_list = List::new(list_items)
-        .block(sidebar_block)
-        .highlight_style(
-            Style::default()
-                .bg(theme_card_bg)
-                .add_modifier(Modifier::BOLD)
-                .fg(theme_cyan),
-        );
+
+    let sidebar_list = List::new(list_items).block(sidebar_block).highlight_style(
+        Style::default()
+            .bg(theme_card_bg)
+            .add_modifier(Modifier::BOLD)
+            .fg(theme_cyan),
+    );
     f.render_stateful_widget(sidebar_list, main_layout[0], &mut app.list_state);
 
     // Right: Detailed Panel
@@ -501,9 +524,14 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
 
         detail_lines.push(Line::from(vec![
             Span::styled("Name:         ", Style::default().fg(Color::Gray)),
-            Span::styled(vault.name.clone(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                vault.name.clone(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
         ]));
-        
+
         detail_lines.push(Line::from(vec![
             Span::styled("Source Path:  ", Style::default().fg(Color::Gray)),
             Span::styled(vault.path.clone(), Style::default().fg(Color::LightBlue)),
@@ -512,28 +540,54 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         detail_lines.push(Line::from(vec![
             Span::styled("Status:       ", Style::default().fg(Color::Gray)),
             if is_unlocked {
-                Span::styled("UNLOCKED & MOUNTED", Style::default().fg(theme_green).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "UNLOCKED & MOUNTED",
+                    Style::default()
+                        .fg(theme_green)
+                        .add_modifier(Modifier::BOLD),
+                )
             } else {
-                Span::styled("LOCKED (Encrypted at rest)", Style::default().fg(theme_red).add_modifier(Modifier::BOLD))
+                Span::styled(
+                    "LOCKED (Encrypted at rest)",
+                    Style::default().fg(theme_red).add_modifier(Modifier::BOLD),
+                )
             },
         ]));
 
         if let Some((_, mountpoint)) = mount_info {
             detail_lines.push(Line::from(vec![
                 Span::styled("Mountpoint:   ", Style::default().fg(Color::Gray)),
-                Span::styled(format!("{:?}", mountpoint), Style::default().fg(theme_green)),
+                Span::styled(
+                    format!("{:?}", mountpoint),
+                    Style::default().fg(theme_green),
+                ),
             ]));
-            
+
             detail_lines.push(Line::from(""));
-            detail_lines.push(Line::from(Span::styled("✔ You can access your decrypted files directly in this mount folder.", Style::default().fg(Color::DarkGray))));
-            detail_lines.push(Line::from(Span::styled("✔ Use git inside this folder for client-side encrypted repository hosting.", Style::default().fg(Color::DarkGray))));
+            detail_lines.push(Line::from(Span::styled(
+                "✔ You can access your decrypted files directly in this mount folder.",
+                Style::default().fg(Color::DarkGray),
+            )));
+            detail_lines.push(Line::from(Span::styled(
+                "✔ Use git inside this folder for client-side encrypted repository hosting.",
+                Style::default().fg(Color::DarkGray),
+            )));
         } else {
             detail_lines.push(Line::from(""));
-            detail_lines.push(Line::from(Span::styled("🔒 To access files or mount a git repository, press Enter to unlock.", Style::default().fg(Color::Yellow))));
+            detail_lines.push(Line::from(Span::styled(
+                "🔒 To access files or mount a git repository, press Enter to unlock.",
+                Style::default().fg(Color::Yellow),
+            )));
         }
     } else {
-        detail_lines.push(Line::from(Span::styled("No vaults added yet.", Style::default().fg(Color::Gray))));
-        detail_lines.push(Line::from(Span::styled("Press 'a' to register an existing vault folder or 'c' to create a new one.", Style::default().fg(Color::Gray))));
+        detail_lines.push(Line::from(Span::styled(
+            "No vaults added yet.",
+            Style::default().fg(Color::Gray),
+        )));
+        detail_lines.push(Line::from(Span::styled(
+            "Press 'a' to register an existing vault folder or 'c' to create a new one.",
+            Style::default().fg(Color::Gray),
+        )));
     }
 
     let detail_paragraph = Paragraph::new(detail_lines)
@@ -557,7 +611,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
                 InputMode::CreateNameInput => " New Vault Name (1/3) ",
                 InputMode::CreatePathInput => " Base Folder Path (2/3) ",
                 InputMode::CreatePasswordInput => " Set Password (3/3) ",
-                InputMode::Normal => unreachable!(),
+                InputMode::Normal => " Input ",
             };
 
             let input_block = Block::default()
@@ -567,7 +621,10 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
                 .border_style(Style::default().fg(theme_cyan));
 
             // Hide password characters
-            let display_val = if matches!(app.input_mode, InputMode::PasswordInput | InputMode::CreatePasswordInput) {
+            let display_val = if matches!(
+                app.input_mode,
+                InputMode::PasswordInput | InputMode::CreatePasswordInput
+            ) {
                 "*".repeat(app.input_value.len())
             } else {
                 app.input_value.clone()
@@ -576,7 +633,12 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
             let input_paragraph = Paragraph::new(Line::from(vec![
                 Span::styled("> ", Style::default().fg(theme_cyan)),
                 Span::styled(display_val, Style::default().fg(Color::White)),
-                Span::styled("_", Style::default().fg(theme_cyan).add_modifier(Modifier::RAPID_BLINK)),
+                Span::styled(
+                    "_",
+                    Style::default()
+                        .fg(theme_cyan)
+                        .add_modifier(Modifier::RAPID_BLINK),
+                ),
             ]))
             .block(input_block);
             f.render_widget(input_paragraph, chunks[2]);

@@ -1,2 +1,5 @@
 /target
 /vaults.json
+.context/
+.sigmap-cache.json
+

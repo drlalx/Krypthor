@@ -1,11 +1,14 @@
+use crate::vault;
+use fuser::{
+    FileAttr, FileType, Filesystem, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyWrite,
+    Request,
+};
+use libc::{EEXIST, EISDIR, ENOENT, ENOTDIR, ENOTEMPTY};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
 use std::fs::File;
 use std::io::{self, Read};
-use fuser::{Filesystem, Request, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry, ReplyWrite, FileAttr, FileType};
-use libc::{ENOENT, EISDIR, EEXIST, ENOTDIR, ENOTEMPTY};
-use crate::vault;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 const TTL: Duration = Duration::from_secs(1);
 
@@ -21,11 +24,11 @@ pub enum FSNode {
         inode: u64,
         parent: u64,
         name: String,
-        relative_path: String, // Full logical path, e.g. "objects/ab/1234"
+        relative_path: String,    // Full logical path, e.g. "objects/ab/1234"
         content: Option<Vec<u8>>, // Cached decrypted content
         size: usize,
         dirty: bool,
-    }
+    },
 }
 
 pub struct CryptomatorFS {
@@ -49,12 +52,15 @@ impl CryptomatorFS {
 
     fn refresh_tree(&mut self) -> Result<(), String> {
         self.inodes.clear();
-        self.inodes.insert(1, FSNode::Directory {
-            inode: 1,
-            parent: 1,
-            name: "".to_string(),
-            children: HashMap::new(),
-        });
+        self.inodes.insert(
+            1,
+            FSNode::Directory {
+                inode: 1,
+                parent: 1,
+                name: "".to_string(),
+                children: HashMap::new(),
+            },
+        );
         self.next_inode = 2;
 
         let files = vault::list_files(&self.vault_dir, &self.master_key)?;
@@ -64,7 +70,7 @@ impl CryptomatorFS {
 
             for (i, part) in parts.iter().enumerate() {
                 let is_last = i == parts.len() - 1;
-                
+
                 let children = match self.inodes.get_mut(&current_inode) {
                     Some(FSNode::Directory { children, .. }) => children,
                     _ => return Err("Invalid tree structure".to_string()),
@@ -81,28 +87,34 @@ impl CryptomatorFS {
                         let phys_path = self.vault_dir.join("d").join(phys_name);
                         let size = get_decrypted_file_size(&phys_path).unwrap_or(0);
 
-                        self.inodes.insert(new_ino, FSNode::File {
-                            inode: new_ino,
-                            parent: current_inode,
-                            name: part.to_string(),
-                            relative_path: rel_path.clone(),
-                            content: None,
-                            size,
-                            dirty: false,
-                        });
+                        self.inodes.insert(
+                            new_ino,
+                            FSNode::File {
+                                inode: new_ino,
+                                parent: current_inode,
+                                name: part.to_string(),
+                                relative_path: rel_path.clone(),
+                                content: None,
+                                size,
+                                dirty: false,
+                            },
+                        );
                     } else {
-                        self.inodes.insert(new_ino, FSNode::Directory {
-                            inode: new_ino,
-                            parent: current_inode,
-                            name: part.to_string(),
-                            children: HashMap::new(),
-                        });
+                        self.inodes.insert(
+                            new_ino,
+                            FSNode::Directory {
+                                inode: new_ino,
+                                parent: current_inode,
+                                name: part.to_string(),
+                                children: HashMap::new(),
+                            },
+                        );
                     }
 
                     // Re-borrow parent's children to insert
                     let children = match self.inodes.get_mut(&current_inode) {
                         Some(FSNode::Directory { children, .. }) => children,
-                        _ => unreachable!(),
+                        _ => return Err("Invalid directory node".to_string()),
                     };
                     children.insert(part.to_string(), new_ino);
                     current_inode = new_ino;
@@ -114,7 +126,11 @@ impl CryptomatorFS {
 
     fn load_file_content(&mut self, inode: u64) -> Result<Vec<u8>, String> {
         let (rel_path, content_opt) = match self.inodes.get(&inode) {
-            Some(FSNode::File { relative_path, content, .. }) => (relative_path.clone(), content.clone()),
+            Some(FSNode::File {
+                relative_path,
+                content,
+                ..
+            }) => (relative_path.clone(), content.clone()),
             _ => return Err("Not a file".to_string()),
         };
 
@@ -123,8 +139,13 @@ impl CryptomatorFS {
         }
 
         let content = vault::read_file(&self.vault_dir, &self.master_key, &rel_path)?;
-        
-        if let Some(FSNode::File { content: cached, size, .. }) = self.inodes.get_mut(&inode) {
+
+        if let Some(FSNode::File {
+            content: cached,
+            size,
+            ..
+        }) = self.inodes.get_mut(&inode)
+        {
             *cached = Some(content.clone());
             *size = content.len();
         }
@@ -134,9 +155,12 @@ impl CryptomatorFS {
 
     fn write_file_to_disk(&mut self, inode: u64) -> Result<(), String> {
         let (rel_path, content) = match self.inodes.get(&inode) {
-            Some(FSNode::File { relative_path, content: Some(content), dirty: true, .. }) => {
-                (relative_path.clone(), content.clone())
-            }
+            Some(FSNode::File {
+                relative_path,
+                content: Some(content),
+                dirty: true,
+                ..
+            }) => (relative_path.clone(), content.clone()),
             _ => return Ok(()), // Not dirty or not loaded
         };
 
@@ -149,29 +173,39 @@ impl CryptomatorFS {
         Ok(())
     }
 
-    fn rename_recursive(&mut self, inode: u64, old_prefix: &str, new_prefix: &str) -> Result<(), String> {
+    fn rename_recursive(
+        &mut self,
+        inode: u64,
+        old_prefix: &str,
+        new_prefix: &str,
+    ) -> Result<(), String> {
         // Collect children to avoid borrow checker issues
         let node_copy = self.inodes.get(&inode).cloned();
-        
+
         match node_copy {
             Some(FSNode::File { relative_path, .. }) => {
                 // Determine new relative path
                 if relative_path.starts_with(old_prefix) {
                     let suffix = &relative_path[old_prefix.len()..];
                     let new_relative_path = format!("{}{}", new_prefix, suffix);
-                    
+
                     // We must read content first before deleting
                     let _ = self.load_file_content(inode)?;
-                    
+
                     // Delete old physical file
                     let _ = vault::delete_file(&self.vault_dir, &self.master_key, &relative_path);
-                    
+
                     // Update in-memory node
-                    if let Some(FSNode::File { relative_path: path_ref, dirty, .. }) = self.inodes.get_mut(&inode) {
+                    if let Some(FSNode::File {
+                        relative_path: path_ref,
+                        dirty,
+                        ..
+                    }) = self.inodes.get_mut(&inode)
+                    {
                         *path_ref = new_relative_path.clone();
                         *dirty = true;
                     }
-                    
+
                     // Write immediately
                     self.write_file_to_disk(inode)?;
                 }
@@ -231,7 +265,11 @@ fn make_attr(ino: u64, size: u64, is_dir: bool) -> FileAttr {
         mtime: now,
         ctime: now,
         crtime: now,
-        kind: if is_dir { FileType::Directory } else { FileType::RegularFile },
+        kind: if is_dir {
+            FileType::Directory
+        } else {
+            FileType::RegularFile
+        },
         perm: if is_dir { 0o755 } else { 0o644 },
         nlink: if is_dir { 2 } else { 1 },
         uid: unsafe { libc::getuid() },
@@ -245,7 +283,7 @@ fn make_attr(ino: u64, size: u64, is_dir: bool) -> FileAttr {
 impl Filesystem for CryptomatorFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, reply: ReplyEntry) {
         let name_str = name.to_string_lossy().to_string();
-        
+
         if let Some(FSNode::Directory { children, .. }) = self.inodes.get(&parent) {
             if let Some(&child_ino) = children.get(&name_str) {
                 if let Some(node) = self.inodes.get(&child_ino) {
@@ -300,18 +338,24 @@ impl Filesystem for CryptomatorFS {
     ) {
         if let Some(new_size) = size {
             let new_size_usize = new_size as usize;
-            
+
             // Load and truncate
             match self.load_file_content(ino) {
                 Ok(mut content) => {
                     content.resize(new_size_usize, 0);
-                    
-                    if let Some(FSNode::File { content: cached, size: node_size, dirty, .. }) = self.inodes.get_mut(&ino) {
+
+                    if let Some(FSNode::File {
+                        content: cached,
+                        size: node_size,
+                        dirty,
+                        ..
+                    }) = self.inodes.get_mut(&ino)
+                    {
                         *cached = Some(content);
                         *node_size = new_size_usize;
                         *dirty = true;
                     }
-                    
+
                     let _ = self.write_file_to_disk(ino);
                 }
                 Err(_) => {
@@ -350,7 +394,7 @@ impl Filesystem for CryptomatorFS {
             Ok(content) => {
                 let offset = offset as usize;
                 let size = size as usize;
-                
+
                 if offset >= content.len() {
                     reply.data(&[]);
                 } else {
@@ -377,15 +421,21 @@ impl Filesystem for CryptomatorFS {
         match self.load_file_content(ino) {
             Ok(mut content) => {
                 let offset = offset as usize;
-                
+
                 if offset + data.len() > content.len() {
                     content.resize(offset + data.len(), 0);
                 }
-                
+
                 content[offset..offset + data.len()].copy_from_slice(data);
                 let bytes_written = data.len();
 
-                if let Some(FSNode::File { content: cached, size: node_size, dirty, .. }) = self.inodes.get_mut(&ino) {
+                if let Some(FSNode::File {
+                    content: cached,
+                    size: node_size,
+                    dirty,
+                    ..
+                }) = self.inodes.get_mut(&ino)
+                {
                     *cached = Some(content);
                     *node_size = offset + bytes_written;
                     *dirty = true;
@@ -401,7 +451,14 @@ impl Filesystem for CryptomatorFS {
         }
     }
 
-    fn flush(&mut self, _req: &Request, ino: u64, _fh: u64, _lock_owner: u64, reply: fuser::ReplyEmpty) {
+    fn flush(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        _lock_owner: u64,
+        reply: fuser::ReplyEmpty,
+    ) {
         match self.write_file_to_disk(ino) {
             Ok(_) => reply.ok(),
             Err(_) => reply.error(libc::EIO),
@@ -424,12 +481,17 @@ impl Filesystem for CryptomatorFS {
         }
     }
 
-    fn readdir(&mut self, _req: &Request, ino: u64, _fh: u64, offset: i64, mut reply: ReplyDirectory) {
+    fn readdir(
+        &mut self,
+        _req: &Request,
+        ino: u64,
+        _fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectory,
+    ) {
         if offset == 0 {
-            let mut entries = vec![
-                (ino, FileType::Directory, ".".to_string()),
-            ];
-            
+            let mut entries = vec![(ino, FileType::Directory, ".".to_string())];
+
             if let Some(node) = self.inodes.get(&ino) {
                 let parent_ino = match node {
                     FSNode::Directory { parent, .. } => *parent,
@@ -462,7 +524,15 @@ impl Filesystem for CryptomatorFS {
         }
     }
 
-    fn mkdir(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, _mode: u32, _umask: u32, reply: ReplyEntry) {
+    fn mkdir(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        _mode: u32,
+        _umask: u32,
+        reply: ReplyEntry,
+    ) {
         let name_str = name.to_string_lossy().to_string();
 
         // Check parent directory
@@ -482,12 +552,15 @@ impl Filesystem for CryptomatorFS {
         let new_ino = self.next_inode;
         self.next_inode += 1;
 
-        self.inodes.insert(new_ino, FSNode::Directory {
-            inode: new_ino,
-            parent,
-            name: name_str.clone(),
-            children: HashMap::new(),
-        });
+        self.inodes.insert(
+            new_ino,
+            FSNode::Directory {
+                inode: new_ino,
+                parent,
+                name: name_str.clone(),
+                children: HashMap::new(),
+            },
+        );
 
         if let Some(FSNode::Directory { children, .. }) = self.inodes.get_mut(&parent) {
             children.insert(name_str, new_ino);
@@ -496,7 +569,13 @@ impl Filesystem for CryptomatorFS {
         reply.entry(&TTL, &make_attr(new_ino, 4096, true), 0);
     }
 
-    fn rmdir(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, reply: fuser::ReplyEmpty) {
+    fn rmdir(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEmpty,
+    ) {
         let name_str = name.to_string_lossy().to_string();
 
         let child_ino = match self.inodes.get(&parent) {
@@ -538,7 +617,13 @@ impl Filesystem for CryptomatorFS {
         reply.ok();
     }
 
-    fn unlink(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, reply: fuser::ReplyEmpty) {
+    fn unlink(
+        &mut self,
+        _req: &Request,
+        parent: u64,
+        name: &std::ffi::OsStr,
+        reply: fuser::ReplyEmpty,
+    ) {
         let name_str = name.to_string_lossy().to_string();
 
         let child_ino = match self.inodes.get(&parent) {
@@ -612,15 +697,18 @@ impl Filesystem for CryptomatorFS {
         let new_ino = self.next_inode;
         self.next_inode += 1;
 
-        self.inodes.insert(new_ino, FSNode::File {
-            inode: new_ino,
-            parent,
-            name: name_str.clone(),
-            relative_path: rel_path.clone(),
-            content: Some(Vec::new()),
-            size: 0,
-            dirty: true,
-        });
+        self.inodes.insert(
+            new_ino,
+            FSNode::File {
+                inode: new_ino,
+                parent,
+                name: name_str.clone(),
+                relative_path: rel_path.clone(),
+                content: Some(Vec::new()),
+                size: 0,
+                dirty: true,
+            },
+        );
 
         if let Some(FSNode::Directory { children, .. }) = self.inodes.get_mut(&parent) {
             children.insert(name_str, new_ino);
@@ -696,7 +784,10 @@ impl Filesystem for CryptomatorFS {
         };
 
         // Rename recursively (updates paths and physical files for files/subfolders)
-        if self.rename_recursive(child_ino, &old_prefix, &new_prefix).is_err() {
+        if self
+            .rename_recursive(child_ino, &old_prefix, &new_prefix)
+            .is_err()
+        {
             reply.error(libc::EIO);
             return;
         }
@@ -704,11 +795,15 @@ impl Filesystem for CryptomatorFS {
         // Update node parent and name
         if let Some(node) = self.inodes.get_mut(&child_ino) {
             match node {
-                FSNode::File { parent: p, name: n, .. } => {
+                FSNode::File {
+                    parent: p, name: n, ..
+                } => {
                     *p = newparent;
                     *n = newname_str.clone();
                 }
-                FSNode::Directory { parent: p, name: n, .. } => {
+                FSNode::Directory {
+                    parent: p, name: n, ..
+                } => {
                     *p = newparent;
                     *n = newname_str.clone();
                 }

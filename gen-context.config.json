@@ -1,0 +1,28 @@
+{
+  "output": ".github/copilot-instructions.md",
+  "outputs": ["copilot", "openai", "gemini"],
+  "exclude": [
+    "node_modules",
+    ".git",
+    "target",
+    "vendor",
+    "backup",
+    "legacy",
+    ".context"
+  ],
+  "maxDepth": 8,
+  "maxSigsPerFile": 25,
+  "autoMaxTokens": true,
+  "coverageTarget": 0.8,
+  "secretScan": true,
+  "diffPriority": true,
+  "strategy": "per-module",
+  "depMap": true,
+  "todos": true,
+  "changes": true,
+  "changesCommits": 5,
+  "sigCache": true,
+  "mcp": {
+    "autoRegister": false
+  }
+}

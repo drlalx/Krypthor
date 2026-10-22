@@ -1,0 +1,41 @@
+# cargo-deny configuration for cryptomator_rs
+# Ensures all dependencies are licensed and compatible with the MIT license.
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[licenses]
+# Fail if any crate has no license specified
+unlicensed = "deny"
+
+# Fail if any crate uses strong copyleft (e.g. GPL / AGPL)
+copyleft = "deny"
+
+# Confidence threshold for detecting license files
+confidence-threshold = 0.8
+
+# List of allowed licenses compatible with MIT
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "ISC",
+    "MIT",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[licenses.private]
+# Local workspace packages are ignored
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/LunaticGhoulPiano/winit"]
