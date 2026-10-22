@@ -20,6 +20,7 @@
       --danger: #ef4444;
       --danger-hover: #dc2626;
       --warning: #f59e0b;
+      --folder: #f59e0b;
       --radius: 8px;
     }
 
@@ -109,6 +110,7 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
+      position: relative;
     }
     .vault-item:hover {
       background: var(--bg-surface-hover);
@@ -133,7 +135,26 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+      padding-right: 20px;
     }
+    .vault-delete-btn {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+    }
+    .vault-item:hover .vault-delete-btn {
+      opacity: 1;
+    }
+    .vault-delete-btn:hover {
+      color: var(--danger);
+    }
+
     .status-dot {
       width: 8px;
       height: 8px;
@@ -195,8 +216,8 @@
       color: white;
     }
     .btn-sm {
-      padding: 4px 8px;
-      font-size: 0.75rem;
+      padding: 5px 10px;
+      font-size: 0.78rem;
     }
 
     /* Main Area / Content */
@@ -207,20 +228,29 @@
       justify-content: space-between;
       align-items: center;
       background: var(--bg-surface);
+      gap: 16px;
     }
     .breadcrumbs {
       display: flex;
       align-items: center;
-      gap: 6px;
-      font-size: 0.9rem;
+      gap: 8px;
+      font-size: 0.92rem;
       font-weight: 600;
+      flex-wrap: wrap;
+    }
+    .crumb-sep {
+      color: var(--text-muted);
     }
     .crumb-link {
       color: var(--primary);
       cursor: pointer;
+      text-decoration: none;
     }
     .crumb-link:hover {
       text-decoration: underline;
+    }
+    .crumb-active {
+      color: var(--text);
     }
 
     .content-area {
@@ -231,7 +261,7 @@
       gap: 20px;
     }
 
-    /* Welcome / Empty Screen */
+    /* Empty Screen */
     .empty-state {
       margin: auto;
       text-align: center;
@@ -306,6 +336,7 @@
     }
     .file-row {
       transition: background 0.15s ease;
+      cursor: pointer;
     }
     .file-row:hover {
       background: var(--bg-surface-hover);
@@ -329,7 +360,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(15, 17, 21, 0.85);
+      background: rgba(15, 17, 21, 0.88);
       border: 2px dashed var(--primary);
       display: none;
       align-items: center;
@@ -348,7 +379,7 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0, 0, 0, 0.75);
       display: none;
       align-items: center;
       justify-content: center;
@@ -361,10 +392,16 @@
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      width: 480px;
-      max-width: 90vw;
+      width: 520px;
+      max-width: 92vw;
       padding: 24px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .modal-card-lg {
+      width: 800px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
     }
     .modal-header {
       display: flex;
@@ -381,7 +418,20 @@
       border: none;
       color: var(--text-muted);
       cursor: pointer;
-      font-size: 1.2rem;
+      font-size: 1.3rem;
+    }
+    .preview-body {
+      flex: 1;
+      overflow-y: auto;
+      max-height: 60vh;
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      font-family: monospace;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
 
     /* Toast */
@@ -470,7 +520,7 @@
       <div class="breadcrumbs" id="breadcrumbs">
         <span class="crumb-link" onclick="loadVaultFiles()">Tresor</span>
       </div>
-      <div id="topActions" style="display: none; gap: 8px;">
+      <div id="topActions" style="display: none; gap: 8px; flex-wrap: wrap;">
         <input type="file" id="fileUploadInput" multiple style="display: none;" onchange="handleFileUpload(this.files)">
         <button class="btn btn-secondary btn-sm" onclick="document.getElementById('fileUploadInput').click()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -479,6 +529,14 @@
             <line x1="12" y1="3" x2="12" y2="15"></line>
           </svg>
           Upload
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="openModal('mkdirModal')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            <line x1="12" y1="11" x2="12" y2="17"></line>
+            <line x1="9" y1="14" x2="15" y2="14"></line>
+          </svg>
+          Neuer Ordner
         </button>
         <button class="btn btn-secondary btn-sm" onclick="openModal('createTextModal')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -565,6 +623,38 @@
     </div>
   </div>
 
+  <!-- Mkdir Modal -->
+  <div class="modal-backdrop" id="mkdirModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Neuen Ordner erstellen</div>
+        <button class="modal-close" onclick="closeModal('mkdirModal')">&times;</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ordnername</label>
+        <input type="text" id="newFolderNameInput" class="form-input" placeholder="z. B. Dokumente">
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="closeModal('mkdirModal')">Abbrechen</button>
+        <button class="btn btn-primary" onclick="handleCreateFolder()">Erstellen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preview Modal -->
+  <div class="modal-backdrop" id="previewModal">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-header">
+        <div class="modal-title" id="previewTitle">Dateivorschau</div>
+        <button class="modal-close" onclick="closeModal('previewModal')">&times;</button>
+      </div>
+      <div class="preview-body" id="previewContent">Lade Vorschau...</div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeModal('previewModal')">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
@@ -572,8 +662,8 @@
     let vaults = [];
     let selectedVault = null;
     let currentPath = "";
+    let rawVaultFiles = [];
 
-    // Load initial vaults on page load
     document.addEventListener("DOMContentLoaded", () => {
       loadVaults();
       setupDragAndDrop();
@@ -587,7 +677,7 @@
         if (selectedVault) {
           const updated = vaults.find(v => v.path === selectedVault.path);
           if (updated) {
-            selectVault(updated);
+            selectVault(updated, false);
           }
         }
       } catch (err) {
@@ -608,6 +698,12 @@
             <span class="status-dot ${v.is_unlocked ? 'unlocked' : 'locked'}" title="${v.is_unlocked ? 'Entsperrt' : 'Gesperrt'}"></span>
           </div>
           <div class="vault-item-path">${escapeHtml(v.path)}</div>
+          <button class="vault-delete-btn" title="Aus Liste entfernen" onclick="event.stopPropagation(); handleRemoveVault('${encodeURIComponent(v.path)}')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"></polyline>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+          </button>
         </div>
       `).join("");
     }
@@ -615,20 +711,48 @@
     function selectVaultByPath(encodedPath) {
       const path = decodeURIComponent(encodedPath);
       const v = vaults.find(x => x.path === path);
-      if (v) selectVault(v);
+      if (v) selectVault(v, true);
     }
 
-    function selectVault(v) {
+    function selectVault(v, resetPath = true) {
       selectedVault = v;
-      currentPath = "";
+      if (resetPath) currentPath = "";
       renderVaultList();
       renderVaultDetail();
+    }
+
+    function renderBreadcrumbs() {
+      const breadcrumbs = document.getElementById("breadcrumbs");
+      if (!selectedVault) return;
+
+      let html = `<span class="crumb-link" onclick="navigateTo('')">${escapeHtml(selectedVault.name)}</span>`;
+      if (currentPath) {
+        const parts = currentPath.split("/").filter(p => p.length > 0);
+        let accumulated = "";
+        for (let i = 0; i < parts.length; i++) {
+          accumulated = accumulated ? accumulated + "/" + parts[i] : parts[i];
+          const isLast = (i === parts.length - 1);
+          html += `<span class="crumb-sep">/</span>`;
+          if (isLast) {
+            html += `<span class="crumb-active">${escapeHtml(parts[i])}</span>`;
+          } else {
+            const pathTarget = accumulated;
+            html += `<span class="crumb-link" onclick="navigateTo('${escapeHtml(pathTarget)}')">${escapeHtml(parts[i])}</span>`;
+          }
+        }
+      }
+      breadcrumbs.innerHTML = html;
+    }
+
+    function navigateTo(folder) {
+      currentPath = folder;
+      renderBreadcrumbs();
+      renderFileList(rawVaultFiles);
     }
 
     function renderVaultDetail() {
       const content = document.getElementById("mainContent");
       const topActions = document.getElementById("topActions");
-      const breadcrumbs = document.getElementById("breadcrumbs");
 
       if (!selectedVault) {
         topActions.style.display = "none";
@@ -639,7 +763,7 @@
         return;
       }
 
-      breadcrumbs.innerHTML = `<span class="crumb-link" onclick="selectVault(selectedVault)">${escapeHtml(selectedVault.name)}</span>`;
+      renderBreadcrumbs();
 
       if (!selectedVault.is_unlocked) {
         topActions.style.display = "none";
@@ -711,9 +835,30 @@
       }
     }
 
+    async function handleRemoveVault(encodedPath) {
+      const path = decodeURIComponent(encodedPath);
+      if (!confirm(`Soll der Tresor "${path}" wirklich aus der Liste entfernt werden? Die Dateien auf der Festplatte bleiben unberührt.`)) return;
+
+      try {
+        const res = await fetch("/api/vaults/remove", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path })
+        });
+        if (res.ok) {
+          showToast("Tresor aus der Liste entfernt", "success");
+          if (selectedVault && selectedVault.path === path) {
+            selectedVault = null;
+          }
+          await loadVaults();
+        }
+      } catch (err) {
+        showToast("Fehler beim Entfernen: " + err, "error");
+      }
+    }
+
     async function loadVaultFiles() {
       if (!selectedVault || !selectedVault.is_unlocked) return;
-      const content = document.getElementById("mainContent");
 
       try {
         const res = await fetch(`/api/vaults/files?path=${encodeURIComponent(selectedVault.path)}`);
@@ -721,26 +866,68 @@
           throw new Error("Dateien konnten nicht geladen werden");
         }
         const data = await res.json();
-        renderFileList(data.files);
+        rawVaultFiles = data.files || [];
+        renderFileList(rawVaultFiles);
       } catch (err) {
         showToast(err.message, "error");
       }
     }
 
-    function renderFileList(files) {
+    function renderFileList(allFiles) {
       const content = document.getElementById("mainContent");
-      if (!files || files.length === 0) {
+      renderBreadcrumbs();
+
+      // Filter and partition into items for current directory
+      const prefix = currentPath ? currentPath + "/" : "";
+      const folders = new Set();
+      const filesInDir = [];
+
+      for (const f of allFiles) {
+        if (f.startsWith(prefix)) {
+          const rest = f.substring(prefix.len ? prefix.length : prefix.length);
+          const slashIdx = rest.indexOf("/");
+          if (slashIdx !== -1) {
+            const folderName = rest.substring(0, slashIdx);
+            folders.add(folderName);
+          } else if (rest && rest !== ".keep") {
+            filesInDir.push({ fullPath: f, name: rest });
+          }
+        }
+      }
+
+      const folderList = Array.from(folders).sort();
+      filesInDir.sort((a, b) => a.name.localeCompare(b.name));
+
+      if (folderList.length === 0 && filesInDir.length === 0 && !currentPath) {
         content.innerHTML = `
           <div class="empty-state">
             <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
               <polyline points="13 2 13 9 20 9"></polyline>
             </svg>
-            <h3>Dieser Tresor ist leer</h3>
+            <h3>Dieser Ordner ist leer</h3>
             <p style="margin-top: 6px;">Ziehe Dateien hierher oder nutze den Upload-Button.</p>
           </div>
         `;
         return;
+      }
+
+      let parentRow = "";
+      if (currentPath) {
+        const lastSlash = currentPath.lastIndexOf("/");
+        const parentPath = lastSlash !== -1 ? currentPath.substring(0, lastSlash) : "";
+        parentRow = `
+          <tr class="file-row" onclick="navigateTo('${escapeHtml(parentPath)}')">
+            <td colspan="2">
+              <div class="file-name-cell" style="color: var(--text-muted);">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+                <span>.. (Übergeordneter Ordner)</span>
+              </div>
+            </td>
+          </tr>
+        `;
       }
 
       content.innerHTML = `
@@ -748,25 +935,49 @@
           <table class="file-table">
             <thead>
               <tr>
-                <th>Name / Pfad</th>
+                <th>Name</th>
                 <th style="text-align: right;">Aktionen</th>
               </tr>
             </thead>
             <tbody>
-              ${files.map(f => `
-                <tr class="file-row">
+              ${parentRow}
+              ${folderList.map(folder => {
+                const targetPath = currentPath ? currentPath + "/" + folder : folder;
+                return `
+                  <tr class="file-row" onclick="navigateTo('${escapeHtml(targetPath)}')">
+                    <td>
+                      <div class="file-name-cell" style="color: var(--folder);">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                        </svg>
+                        <span style="font-weight: 600;">${escapeHtml(folder)}</span>
+                      </div>
+                    </td>
+                    <td></td>
+                  </tr>
+                `;
+              }).join("")}
+              ${filesInDir.map(f => `
+                <tr class="file-row" onclick="openFilePreview('${escapeHtml(f.fullPath)}')">
                   <td>
                     <div class="file-name-cell">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);">
                         <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
                         <polyline points="13 2 13 9 20 9"></polyline>
                       </svg>
-                      <span>${escapeHtml(f)}</span>
+                      <span>${escapeHtml(f.name)}</span>
                     </div>
                   </td>
                   <td>
-                    <div class="file-actions">
-                      <a href="/api/vaults/download?vault_path=${encodeURIComponent(selectedVault.path)}&file_path=${encodeURIComponent(f)}" class="btn btn-secondary btn-sm" download>
+                    <div class="file-actions" onclick="event.stopPropagation()">
+                      <button class="btn btn-secondary btn-sm" onclick="openFilePreview('${escapeHtml(f.fullPath)}')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                          <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        Vorschau
+                      </button>
+                      <a href="/api/vaults/download?vault_path=${encodeURIComponent(selectedVault.path)}&file_path=${encodeURIComponent(f.fullPath)}" class="btn btn-secondary btn-sm" download>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
                           <polyline points="7 10 12 15 17 10"></polyline>
@@ -774,7 +985,7 @@
                         </svg>
                         Download
                       </a>
-                      <button class="btn btn-danger btn-sm" onclick="handleDeleteFile('${escapeHtml(f)}')">
+                      <button class="btn btn-danger btn-sm" onclick="handleDeleteFile('${escapeHtml(f.fullPath)}')">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <polyline points="3 6 5 6 21 6"></polyline>
                           <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -789,6 +1000,30 @@
           </table>
         </div>
       `;
+    }
+
+    async function openFilePreview(filePath) {
+      if (!selectedVault) return;
+      document.getElementById("previewTitle").innerText = filePath;
+      const previewBox = document.getElementById("previewContent");
+      previewBox.innerHTML = "Lade Datei...";
+      openModal("previewModal");
+
+      const isImage = /\.(jpg|jpeg|png|gif|webp|svg)$/i.test(filePath);
+      const url = `/api/vaults/preview?vault_path=${encodeURIComponent(selectedVault.path)}&file_path=${encodeURIComponent(filePath)}`;
+
+      if (isImage) {
+        previewBox.innerHTML = `<div style="text-align: center;"><img src="${url}" style="max-width: 100%; max-height: 55vh; border-radius: var(--radius);"></div>`;
+      } else {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error("Vorschau konnte nicht geladen werden");
+          const text = await res.text();
+          previewBox.innerText = text;
+        } catch (err) {
+          previewBox.innerText = "Fehler: " + err.message;
+        }
+      }
     }
 
     async function handleFileUpload(fileList) {
@@ -815,6 +1050,37 @@
         }
       }
       loadVaultFiles();
+    }
+
+    async function handleCreateFolder() {
+      const folderName = document.getElementById("newFolderNameInput").value.trim();
+      if (!folderName) {
+        showToast("Bitte gib einen Ordnernamen ein", "error");
+        return;
+      }
+      const fullFolder = currentPath ? currentPath + "/" + folderName : folderName;
+
+      try {
+        const res = await fetch("/api/vaults/mkdir", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vault_path: selectedVault.path,
+            folder_path: fullFolder
+          })
+        });
+        if (res.ok) {
+          showToast(`Ordner "${folderName}" erstellt`, "success");
+          closeModal("mkdirModal");
+          document.getElementById("newFolderNameInput").value = "";
+          loadVaultFiles();
+        } else {
+          const err = await res.json();
+          showToast(`Fehler: ${err.error}`, "error");
+        }
+      } catch (err) {
+        showToast(`Fehler: ${err}`, "error");
+      }
     }
 
     async function handleCreateTextFile() {
@@ -901,7 +1167,6 @@
       }
     }
 
-    // Drag and Drop
     function setupDragAndDrop() {
       const dropZone = document.getElementById("mainDropZone");
       const overlay = document.getElementById("dropOverlay");
@@ -926,7 +1191,6 @@
       });
     }
 
-    // Modal Helpers
     function openModal(id) {
       document.getElementById(id).classList.add("open");
     }
@@ -934,7 +1198,6 @@
       document.getElementById(id).classList.remove("open");
     }
 
-    // Toast helper
     function showToast(msg, type = "info") {
       const container = document.getElementById("toastContainer");
       const toast = document.createElement("div");

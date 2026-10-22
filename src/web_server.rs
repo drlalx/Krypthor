@@ -81,6 +81,17 @@ pub struct DeleteFileRequest {
     pub file_path: String,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct RemoveVaultRequest {
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MkdirRequest {
+    pub vault_path: String,
+    pub folder_path: String,
+}
+
 #[derive(Serialize)]
 pub struct GenericSuccessResponse {
     pub success: bool,
@@ -357,6 +368,103 @@ async fn delete_file_handler(
     }))
 }
 
+async fn preview_file_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DownloadQuery>,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    let unlocked = state.unlocked_vaults.read().await;
+    let master_key = unlocked.get(&query.vault_path).ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked".into(),
+            }),
+        )
+    })?;
+
+    let vault_path = Path::new(&query.vault_path);
+    let content = vault::read_file(vault_path, master_key, &query.file_path)
+        .map_err(|e| (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })))?;
+
+    let filename = Path::new(&query.file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("preview");
+
+    let mime_type = mime_guess::from_path(&query.file_path)
+        .first_or_octet_stream()
+        .to_string();
+
+    let disposition = format!("inline; filename=\"{filename}\"");
+
+    let mut response = Response::new(Body::from(content));
+    let headers = response.headers_mut();
+    if let Ok(mime_val) = HeaderValue::from_str(&mime_type) {
+        headers.insert(header::CONTENT_TYPE, mime_val);
+    }
+    if let Ok(disp_val) = HeaderValue::from_str(&disposition) {
+        headers.insert(header::CONTENT_DISPOSITION, disp_val);
+    }
+
+    Ok(response)
+}
+
+async fn remove_vault_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RemoveVaultRequest>,
+) -> Json<GenericSuccessResponse> {
+    let mut unlocked = state.unlocked_vaults.write().await;
+    unlocked.remove(&payload.path);
+
+    let mut saved = load_saved_vaults();
+    saved.retain(|v| v.path != payload.path);
+    save_saved_vaults(&saved);
+
+    Json(GenericSuccessResponse {
+        success: true,
+        message: "Vault removed from list".into(),
+    })
+}
+
+async fn mkdir_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<MkdirRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let unlocked = state.unlocked_vaults.read().await;
+    let master_key = unlocked.get(&payload.vault_path).ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked".into(),
+            }),
+        )
+    })?;
+
+    let trimmed = payload.folder_path.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Invalid folder path".into(),
+            }),
+        ));
+    }
+
+    let keep_file = format!("{trimmed}/.keep");
+    let vault_dir = Path::new(&payload.vault_path);
+    vault::write_file(vault_dir, master_key, &keep_file, b"").map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: format!("Folder '{trimmed}' created"),
+    }))
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index_handler))
@@ -367,9 +475,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/api/vaults/unlock", post(unlock_vault_handler))
         .route("/api/vaults/lock", post(lock_vault_handler))
+        .route("/api/vaults/remove", post(remove_vault_handler))
         .route("/api/vaults/files", get(list_files_handler))
         .route("/api/vaults/download", get(download_file_handler))
+        .route("/api/vaults/preview", get(preview_file_handler))
         .route("/api/vaults/upload", post(upload_file_handler))
+        .route("/api/vaults/mkdir", post(mkdir_handler))
         .route("/api/vaults/delete", post(delete_file_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
@@ -483,7 +594,26 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        // 3. List files (initially empty)
+        // 3. Create folder via API
+        let mkdir_req = MkdirRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+            folder_path: "subfolder".to_string(),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/mkdir")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&mkdir_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 4. List files (should contain subfolder/.keep)
         let res = router
             .clone()
             .oneshot(
@@ -499,7 +629,7 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        // 4. Lock vault via API
+        // 5. Lock vault via API
         let lock_req = LockVaultRequest {
             path: temp_dir.to_string_lossy().to_string(),
         };
@@ -517,7 +647,7 @@ mod tests {
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
 
-        // 5. List files after lock (should return 401 Unauthorized)
+        // 6. List files after lock (should return 401 Unauthorized)
         let res = router
             .clone()
             .oneshot(
@@ -532,6 +662,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 7. Remove vault from list via API
+        let remove_req = RemoveVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/remove")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&remove_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
