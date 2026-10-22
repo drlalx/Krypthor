@@ -1,15 +1,20 @@
-# Cryptomator RS (Rust & egui / Ratatui)
+# Cryptomator RS (Rust & egui / Ratatui / Web Daemon)
 
-Eine moderne, speichersichere und performante Implementierung des Cryptomator-Konzepts in Rust mit einer Desktop-Oberfläche auf Basis von `egui` und `egui-elegance`, einem Terminal-Interface (TUI via `ratatui`) sowie einer vollständigen Befehlszeilenschnittstelle (CLI) inklusive FUSE-Dateisystemintegration.
+Eine moderne, speichersichere und performante Implementierung des Cryptomator-Konzepts in Rust mit einer Desktop-Oberfläche auf Basis von `egui` und `egui-elegance`, einem Terminal-Interface (TUI via `ratatui`), einem **Syncthing-ähnlichen Web-Dashboard / Hintergrund-Daemon** sowie einer vollständigen Befehlszeilenschnittstelle (CLI) inklusive FUSE-Dateisystemintegration.
 
 ## Features
 
 - **Erstellung neuer Tresore**: Generiert ein kryptografisches Salz, leitet einen Schlüssel mittels `Scrypt` ab und verschlüsselt den Masterkey via `AES-256-GCM`.
 - **Tresor-Verwaltung**: Speichert registrierte Tresore persistent in `vaults.json`.
 - **Desktop-Dateimanager**: Ermöglicht das Anlegen, Importieren, Exportieren und Löschen von verschlüsselten Dateien und Verzeichnissen direkt über die grafische Oberfläche (`egui`).
+- **Web-Dashboard & Headless Daemon (Syncthing-Stil)**:
+  - Integrierter Pure-Rust Webserver via `axum` und `tokio`.
+  - **Single-Binary**: Vollwertiges, responsives HTML5/CSS3/JS Single-Page-Dashboard direkt in die Binary einkompiliert (`src/web/index.html`).
+  - Funktioniert im Browser auf Desktop, Tablet und Smartphone (Drag & Drop Upload, Download, Entsperren, Sperren, Textdateien erstellen).
+  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/unlock`, `/api/vaults/files`, etc.).
 - **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal.
 - **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via Pure-Rust FUSE (ohne C `libfuse`-Bindung).
-- **CLI-Befehle**: Vollwertige Steuerung ohne GUI über Subcommands (`list`, `create`, `mount`, `tui`).
+- **CLI-Befehle**: Vollwertige Steuerung ohne GUI über Subcommands (`list`, `create`, `mount`, `tui`, `serve`).
 - **Sicherheitsarchitektur**:
   - **Schlüsselableitung**: Scrypt (N=16384, r=8, p=1) mit optionaler Unterstützung für Schlüsseldateien (Keyfiles).
   - **Dateiverschlüsselung**: Authenticated Encryption mit AES-256-GCM. Jede Datei enthält einen zufälligen 12-Byte-Nonce und verschlüsselte Pfadmetadaten.
@@ -58,7 +63,16 @@ cargo run --release -- tui
 cargo run --release -- --tui
 ```
 
-### 3. CLI-Befehle
+### 3. Web-Client & Daemon (Syncthing-Stil)
+Startet den Hintergrunddienst mit eingebettetem Web-Dashboard:
+```bash
+cargo run --release -- serve --host 127.0.0.1 --port 8080
+# Alternativ:
+cargo run --release -- --serve
+```
+Anschließend im Browser **`http://127.0.0.1:8080`** aufrufen, um Tresore zu verwalten, zu entsperren und Dateien per Drag & Drop zu übertragen.
+
+### 4. CLI-Befehle
 Die Anwendung kann auch direkt per Befehlszeile gesteuert werden:
 
 #### Tresore auflisten
@@ -89,6 +103,8 @@ fusermount -u "/pfad/zum/mountpunkt"
 
 - [`src/main.rs`](src/main.rs): Einstiegspunkt, CLI-Argument-Parsing (`clap`) und Befehls-Dispatching.
 - [`src/vault.rs`](src/vault.rs): Kryptografischer Kern (Scrypt KDF, AES-256-GCM, Pfad-Hashing, Tresor-Initialisierung & Dateiverschlüsselung).
+- [`src/web_server.rs`](src/web_server.rs): Web-Server und REST-API via `axum` und `tokio`.
+- [`src/web/index.html`](src/web/index.html): Eingebettetes, responsives Web-Dashboard (Single-Page-App).
 - [`src/egui_ui.rs`](src/egui_ui.rs): Desktop-GUI basierend auf `eframe`, `egui` und `egui-elegance`.
 - [`src/fs_fuse.rs`](src/fs_fuse.rs): Virtuelles FUSE-Dateisystem (Unix/Linux) zur nativen Einbindung von Tresoren.
 - [`src/tui_app.rs`](src/tui_app.rs): Terminal-Benutzeroberfläche basierend auf `ratatui` und `crossterm`.
