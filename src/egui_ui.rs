@@ -87,6 +87,15 @@ struct CryptomatorApp {
     recover_modal_open: bool,
     recover_key_input: String,
 
+    // Vault rename modal
+    rename_vault_modal_open: bool,
+    rename_vault_new_name: String,
+
+    // File preview modal
+    preview_modal_open: bool,
+    preview_file_name: String,
+    preview_file_text: String,
+
     // Throughput & activity stats
     throughput_history: VecDeque<f32>,
     active_read_speed: f32,
@@ -160,6 +169,13 @@ impl CryptomatorApp {
 
             recover_modal_open: false,
             recover_key_input: String::new(),
+
+            rename_vault_modal_open: false,
+            rename_vault_new_name: String::new(),
+
+            preview_modal_open: false,
+            preview_file_name: String::new(),
+            preview_file_text: String::new(),
 
             throughput_history,
             active_read_speed: 0.0,
@@ -458,13 +474,19 @@ impl CryptomatorApp {
                             });
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if is_selected
-                                    && ui
+                                if is_selected {
+                                    if ui
                                         .small_button("✕")
                                         .on_hover_text("Remove from list")
                                         .clicked()
-                                {
-                                    to_delete = Some(i);
+                                    {
+                                        to_delete = Some(i);
+                                    }
+                                    if ui.small_button("✏").on_hover_text("Rename vault").clicked()
+                                    {
+                                        self.rename_vault_modal_open = true;
+                                        self.rename_vault_new_name = name.clone();
+                                    }
                                 }
                             });
                         });
@@ -496,6 +518,35 @@ impl CryptomatorApp {
                     } else {
                         self.select_vault(0);
                     }
+                }
+
+                if self.rename_vault_modal_open {
+                    ui.add_space(8.0);
+                    Card::new().heading("Rename Vault").show(ui, |ui| {
+                        ui.label("New vault name:");
+                        ui.text_edit_singleline(&mut self.rename_vault_new_name);
+                        ui.horizontal(|ui| {
+                            if ui.button("💾 Save").clicked() {
+                                let trimmed = self.rename_vault_new_name.trim().to_string();
+                                if !trimmed.is_empty() {
+                                    if let Some(idx) = self.selected_vault_idx
+                                        && let Some(v) = self.saved_vaults.get_mut(idx)
+                                    {
+                                        v.name = trimmed;
+                                        save_saved_vaults(&self.saved_vaults);
+                                        self.status_message = Some((
+                                            "Vault renamed successfully.".to_string(),
+                                            false,
+                                        ));
+                                    }
+                                    self.rename_vault_modal_open = false;
+                                }
+                            }
+                            if ui.button("Cancel").clicked() {
+                                self.rename_vault_modal_open = false;
+                            }
+                        });
+                    });
                 }
             }
 
@@ -1182,6 +1233,27 @@ impl CryptomatorApp {
             ui.add_space(10.0);
         }
 
+        if self.preview_modal_open {
+            Card::new()
+                .heading(format!("File Viewer: {}", self.preview_file_name))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .max_height(250.0)
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.preview_file_text)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace),
+                            );
+                        });
+                    ui.add_space(6.0);
+                    if ui.button("Close Viewer").clicked() {
+                        self.preview_modal_open = false;
+                    }
+                });
+            ui.add_space(10.0);
+        }
+
         // Files List
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.vault_files.is_empty() {
@@ -1191,6 +1263,7 @@ impl CryptomatorApp {
                 let mut file_to_export = None;
                 let mut file_to_delete = None;
                 let mut file_to_rename = None;
+                let mut file_to_preview = None;
 
                 for file in &self.vault_files {
                     ui.horizontal(|ui| {
@@ -1207,9 +1280,29 @@ impl CryptomatorApp {
                             if ui.button("💾 Export").clicked() {
                                 file_to_export = Some(file.clone());
                             }
+                            if ui.button("👁 View").clicked() {
+                                file_to_preview = Some(file.clone());
+                            }
                         });
                     });
                     ui.separator();
+                }
+
+                if let Some(target) = file_to_preview {
+                    match vault::read_file(vault_path, &master_key, &target) {
+                        Ok(data) => {
+                            let text = String::from_utf8(data).unwrap_or_else(|_| {
+                                "[Binary or non-UTF-8 file content]".to_string()
+                            });
+                            self.preview_modal_open = true;
+                            self.preview_file_name = target;
+                            self.preview_file_text = text;
+                        }
+                        Err(e) => {
+                            self.status_message =
+                                Some((format!("Error reading file for preview: {e}"), true));
+                        }
+                    }
                 }
 
                 if let Some(target) = file_to_rename {
