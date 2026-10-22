@@ -38,8 +38,8 @@ pub fn derive_final_key(
         let keyfile_hash = hasher.finalize();
 
         let mut final_hasher = Sha256::new();
-        final_hasher.update(&base_key);
-        final_hasher.update(&keyfile_hash);
+        final_hasher.update(base_key);
+        final_hasher.update(keyfile_hash);
         let final_hash = final_hasher.finalize();
 
         let mut final_key = [0u8; 32];
@@ -348,13 +348,13 @@ pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>
     for entry in fs::read_dir(d_dir).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
-        if path.is_file() && path.extension().map_or(false, |ext| ext == "c9r") {
+        if path.is_file() && path.extension().is_some_and(|ext| ext == "c9r") {
             let mut file = File::open(&path).map_err(|e| e.to_string())?;
             let mut payload = Vec::new();
-            if file.read_to_end(&mut payload).is_ok() {
-                if let Ok((rel_path, _)) = decrypt_file_payload(master_key, &payload) {
-                    files.push(rel_path);
-                }
+            if file.read_to_end(&mut payload).is_ok()
+                && let Ok((rel_path, _)) = decrypt_file_payload(master_key, &payload)
+            {
+                files.push(rel_path);
             }
         }
     }

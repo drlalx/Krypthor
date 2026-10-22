@@ -24,12 +24,11 @@ pub struct SavedVault {
 pub const CONFIG_FILE: &str = "vaults.json";
 
 pub fn load_saved_vaults() -> Vec<SavedVault> {
-    if Path::new(CONFIG_FILE).exists() {
-        if let Ok(content) = fs::read_to_string(CONFIG_FILE) {
-            if let Ok(vaults) = serde_json::from_str::<Vec<SavedVault>>(&content) {
-                return vaults;
-            }
-        }
+    if Path::new(CONFIG_FILE).exists()
+        && let Ok(content) = fs::read_to_string(CONFIG_FILE)
+        && let Ok(vaults) = serde_json::from_str::<Vec<SavedVault>>(&content)
+    {
+        return vaults;
     }
     Vec::new()
 }

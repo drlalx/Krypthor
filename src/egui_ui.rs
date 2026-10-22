@@ -153,33 +153,33 @@ impl CryptomatorApp {
     }
 
     fn lock_active_vault(&mut self) {
-        if let Some(idx) = self.selected_vault_idx {
-            if let Some(vault) = self.saved_vaults.get(idx) {
-                let path = PathBuf::from(&vault.path);
-                #[cfg(unix)]
-                {
-                    self.active_mounts.remove(&path);
-                }
-                self.unlocked_vaults.remove(&path);
-                self.view_mode = ViewMode::Locked;
-                self.vault_files.clear();
-                self.status_message = Some(("Vault locked successfully.".to_string(), false));
+        if let Some(idx) = self.selected_vault_idx
+            && let Some(vault) = self.saved_vaults.get(idx)
+        {
+            let path = PathBuf::from(&vault.path);
+            #[cfg(unix)]
+            {
+                self.active_mounts.remove(&path);
             }
+            self.unlocked_vaults.remove(&path);
+            self.view_mode = ViewMode::Locked;
+            self.vault_files.clear();
+            self.status_message = Some(("Vault locked successfully.".to_string(), false));
         }
     }
 
     fn refresh_vault_files(&mut self) {
-        if let Some(idx) = self.selected_vault_idx {
-            if let Some(vault) = self.saved_vaults.get(idx) {
-                let path = PathBuf::from(&vault.path);
-                if let Some(key) = self.unlocked_vaults.get(&path) {
-                    match vault::list_files(&path, key) {
-                        Ok(files) => {
-                            self.vault_files = files;
-                        }
-                        Err(e) => {
-                            self.status_message = Some((format!("Error listing files: {e}"), true));
-                        }
+        if let Some(idx) = self.selected_vault_idx
+            && let Some(vault) = self.saved_vaults.get(idx)
+        {
+            let path = PathBuf::from(&vault.path);
+            if let Some(key) = self.unlocked_vaults.get(&path) {
+                match vault::list_files(&path, key) {
+                    Ok(files) => {
+                        self.vault_files = files;
+                    }
+                    Err(e) => {
+                        self.status_message = Some((format!("Error listing files: {e}"), true));
                     }
                 }
             }
@@ -343,23 +343,23 @@ impl CryptomatorApp {
                 self.view_mode = ViewMode::CreateWizard;
                 self.status_message = None;
             }
-            if ui.add(Button::new("📂 Add Existing")).clicked() {
-                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                    let path_str = folder.to_string_lossy().to_string();
-                    let default_name = folder
-                        .file_name()
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_else(|| "Existing Vault".to_string());
-                    let new_v = SavedVault {
-                        name: default_name,
-                        path: path_str,
-                    };
-                    self.saved_vaults.push(new_v);
-                    save_saved_vaults(&self.saved_vaults);
-                    let new_idx = self.saved_vaults.len() - 1;
-                    self.select_vault(new_idx);
-                    self.status_message = Some(("Vault added successfully.".to_string(), false));
-                }
+            if ui.add(Button::new("📂 Add Existing")).clicked()
+                && let Some(folder) = rfd::FileDialog::new().pick_folder()
+            {
+                let path_str = folder.to_string_lossy().to_string();
+                let default_name = folder
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Existing Vault".to_string());
+                let new_v = SavedVault {
+                    name: default_name,
+                    path: path_str,
+                };
+                self.saved_vaults.push(new_v);
+                save_saved_vaults(&self.saved_vaults);
+                let new_idx = self.saved_vaults.len() - 1;
+                self.select_vault(new_idx);
+                self.status_message = Some(("Vault added successfully.".to_string(), false));
             }
         });
 
@@ -419,14 +419,13 @@ impl CryptomatorApp {
                             });
 
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if is_selected {
-                                    if ui
+                                if is_selected
+                                    && ui
                                         .small_button("✕")
                                         .on_hover_text("Remove from list")
                                         .clicked()
-                                    {
-                                        to_delete = Some(i);
-                                    }
+                                {
+                                    to_delete = Some(i);
                                 }
                             });
                         });
@@ -460,6 +459,19 @@ impl CryptomatorApp {
                     }
                 }
             }
+
+            #[cfg(feature = "web")]
+            {
+                ui.separator();
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("🌐").size(13.0));
+                    ui.label(RichText::new("Web Control").size(11.0).strong());
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.hyperlink_to("Open Web UI ↗", "http://127.0.0.1:8080");
+                    });
+                });
+            }
         });
     }
 
@@ -483,8 +495,8 @@ impl CryptomatorApp {
                 if ui.add(Button::new("➕ Create New Vault").accent(Accent::Blue)).clicked() {
                     self.view_mode = ViewMode::CreateWizard;
                 }
-                if ui.add(Button::new("📂 Add Existing Vault")).clicked() {
-                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                if ui.add(Button::new("📂 Add Existing Vault")).clicked()
+                    && let Some(folder) = rfd::FileDialog::new().pick_folder() {
                         let path_str = folder.to_string_lossy().to_string();
                         let default_name = folder
                             .file_name()
@@ -498,7 +510,6 @@ impl CryptomatorApp {
                         let idx = self.saved_vaults.len() - 1;
                         self.select_vault(idx);
                     }
-                }
             });
         });
     }
@@ -526,10 +537,10 @@ impl CryptomatorApp {
                     egui::TextEdit::singleline(&mut self.create_path)
                         .hint_text("/path/to/vault_folder"),
                 );
-                if ui.button("Browse...").clicked() {
-                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                        self.create_path = folder.to_string_lossy().to_string();
-                    }
+                if ui.button("Browse...").clicked()
+                    && let Some(folder) = rfd::FileDialog::new().pick_folder()
+                {
+                    self.create_path = folder.to_string_lossy().to_string();
                 }
             });
 
@@ -557,10 +568,10 @@ impl CryptomatorApp {
                             .italics()
                             .color(Color32::LIGHT_BLUE),
                     );
-                    if ui.button("Select Keyfile...").clicked() {
-                        if let Some(file) = rfd::FileDialog::new().pick_file() {
-                            self.create_keyfile_path = Some(file);
-                        }
+                    if ui.button("Select Keyfile...").clicked()
+                        && let Some(file) = rfd::FileDialog::new().pick_file()
+                    {
+                        self.create_keyfile_path = Some(file);
                     }
                 });
             }
@@ -659,10 +670,10 @@ impl CryptomatorApp {
                     None => "No keyfile selected (optional)".to_string(),
                 };
                 ui.label(RichText::new(keyfile_str).size(12.0).italics());
-                if ui.button("Select Keyfile...").clicked() {
-                    if let Some(file) = rfd::FileDialog::new().pick_file() {
-                        self.unlock_keyfile_path = Some(file);
-                    }
+                if ui.button("Select Keyfile...").clicked()
+                    && let Some(file) = rfd::FileDialog::new().pick_file()
+                {
+                    self.unlock_keyfile_path = Some(file);
                 }
             });
 
@@ -828,34 +839,31 @@ impl CryptomatorApp {
             if ui
                 .add(Button::new("📥 Import File").accent(Accent::Blue))
                 .clicked()
+                && let Some(file_path) = rfd::FileDialog::new().pick_file()
             {
-                if let Some(file_path) = rfd::FileDialog::new().pick_file() {
-                    match std::fs::read(&file_path) {
-                        Ok(content) => {
-                            let file_name = file_path
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                                .unwrap_or_else(|| "imported_file".to_string());
-                            let size_kb = content.len() as f32 / 1024.0;
-                            match vault::write_file(vault_path, &master_key, &file_name, &content) {
-                                Ok(_) => {
-                                    self.active_write_speed = size_kb.max(50.0);
-                                    self.refresh_vault_files();
-                                    self.status_message = Some((
-                                        format!("Imported '{file_name}' successfully."),
-                                        false,
-                                    ));
-                                }
-                                Err(e) => {
-                                    self.status_message =
-                                        Some((format!("Error writing file: {e}"), true));
-                                }
+                match std::fs::read(&file_path) {
+                    Ok(content) => {
+                        let file_name = file_path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "imported_file".to_string());
+                        let size_kb = content.len() as f32 / 1024.0;
+                        match vault::write_file(vault_path, &master_key, &file_name, &content) {
+                            Ok(_) => {
+                                self.active_write_speed = size_kb.max(50.0);
+                                self.refresh_vault_files();
+                                self.status_message =
+                                    Some((format!("Imported '{file_name}' successfully."), false));
+                            }
+                            Err(e) => {
+                                self.status_message =
+                                    Some((format!("Error writing file: {e}"), true));
                             }
                         }
-                        Err(e) => {
-                            self.status_message =
-                                Some((format!("Error reading input file: {e}"), true));
-                        }
+                    }
+                    Err(e) => {
+                        self.status_message =
+                            Some((format!("Error reading input file: {e}"), true));
                     }
                 }
             }
@@ -980,6 +988,19 @@ impl CryptomatorApp {
                         }
                     }
                 }
+            }
+
+            #[cfg(feature = "web")]
+            {
+                ui.separator();
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("🌐").size(13.0));
+                    ui.label(RichText::new("Web Control").size(11.0).strong());
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.hyperlink_to("Open Web UI ↗", "http://127.0.0.1:8080");
+                    });
+                });
             }
         });
     }

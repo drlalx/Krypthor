@@ -185,8 +185,7 @@ impl CryptomatorFS {
         match node_copy {
             Some(FSNode::File { relative_path, .. }) => {
                 // Determine new relative path
-                if relative_path.starts_with(old_prefix) {
-                    let suffix = &relative_path[old_prefix.len()..];
+                if let Some(suffix) = relative_path.strip_prefix(old_prefix) {
                     let new_relative_path = format!("{}{}", new_prefix, suffix);
 
                     // We must read content first before deleting
@@ -260,7 +259,7 @@ fn make_attr(ino: u64, size: u64, is_dir: bool) -> FileAttr {
     FileAttr {
         ino,
         size,
-        blocks: if is_dir { 0 } else { (size + 511) / 512 },
+        blocks: if is_dir { 0 } else { size.div_ceil(512) },
         atime: now,
         mtime: now,
         ctime: now,
@@ -284,19 +283,18 @@ impl Filesystem for CryptomatorFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, reply: ReplyEntry) {
         let name_str = name.to_string_lossy().to_string();
 
-        if let Some(FSNode::Directory { children, .. }) = self.inodes.get(&parent) {
-            if let Some(&child_ino) = children.get(&name_str) {
-                if let Some(node) = self.inodes.get(&child_ino) {
-                    match node {
-                        FSNode::Directory { inode, .. } => {
-                            reply.entry(&TTL, &make_attr(*inode, 4096, true), 0);
-                            return;
-                        }
-                        FSNode::File { inode, size, .. } => {
-                            reply.entry(&TTL, &make_attr(*inode, *size as u64, false), 0);
-                            return;
-                        }
-                    }
+        if let Some(FSNode::Directory { children, .. }) = self.inodes.get(&parent)
+            && let Some(&child_ino) = children.get(&name_str)
+            && let Some(node) = self.inodes.get(&child_ino)
+        {
+            match node {
+                FSNode::Directory { inode, .. } => {
+                    reply.entry(&TTL, &make_attr(*inode, 4096, true), 0);
+                    return;
+                }
+                FSNode::File { inode, size, .. } => {
+                    reply.entry(&TTL, &make_attr(*inode, *size as u64, false), 0);
+                    return;
                 }
             }
         }
@@ -759,10 +757,7 @@ impl Filesystem for CryptomatorFS {
         };
 
         if let Some(target_ino) = target_exist_ino {
-            let is_dir = match self.inodes.get(&target_ino) {
-                Some(FSNode::Directory { .. }) => true,
-                _ => false,
-            };
+            let is_dir = matches!(self.inodes.get(&target_ino), Some(FSNode::Directory { .. }));
             if is_dir {
                 reply.error(EISDIR);
                 return;

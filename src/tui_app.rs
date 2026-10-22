@@ -29,12 +29,11 @@ struct SavedVault {
 const CONFIG_FILE: &str = "vaults.json";
 
 fn load_saved_vaults() -> Vec<SavedVault> {
-    if Path::new(CONFIG_FILE).exists() {
-        if let Ok(content) = std::fs::read_to_string(CONFIG_FILE) {
-            if let Ok(vaults) = serde_json::from_str::<Vec<SavedVault>>(&content) {
-                return vaults;
-            }
-        }
+    if Path::new(CONFIG_FILE).exists()
+        && let Ok(content) = std::fs::read_to_string(CONFIG_FILE)
+        && let Ok(vaults) = serde_json::from_str::<Vec<SavedVault>>(&content)
+    {
+        return vaults;
     }
     Vec::new()
 }
@@ -271,150 +270,146 @@ fn run_loop<B: ratatui::backend::Backend>(
     loop {
         terminal.draw(|f| ui_draw(f, app))?;
 
-        if event::poll(Duration::from_millis(200))? {
-            if let Event::Key(key) = event::read()? {
-                match app.input_mode {
-                    InputMode::Normal => match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => {
-                            return Ok(());
-                        }
-                        KeyCode::Down | KeyCode::Char('j') => {
-                            app.select_next();
-                        }
-                        KeyCode::Up | KeyCode::Char('k') => {
-                            app.select_prev();
-                        }
-                        KeyCode::Char('u') | KeyCode::Enter => {
-                            // Unlock/Lock toggle
-                            if let Some(idx) = app.list_state.selected() {
-                                let path = PathBuf::from(&app.vaults[idx].path);
-                                if app.active_mounts.contains_key(&path) {
-                                    app.lock_active_vault();
-                                } else {
-                                    app.input_mode = InputMode::PasswordInput;
-                                    app.input_value.clear();
-                                    app.status_message = "Enter vault password:".to_string();
-                                }
-                            }
-                        }
-                        KeyCode::Char('l') => {
-                            app.lock_active_vault();
-                        }
-                        KeyCode::Char('a') => {
-                            app.input_mode = InputMode::AddVaultPathInput;
-                            app.input_value.clear();
-                            app.status_message = "Enter path to existing vault folder:".to_string();
-                        }
-                        KeyCode::Char('c') => {
-                            app.input_mode = InputMode::CreateNameInput;
-                            app.input_value.clear();
-                            app.status_message = "[Step 1/3] Enter name for new vault:".to_string();
-                        }
-                        _ => {}
-                    },
-                    InputMode::PasswordInput => match key.code {
-                        KeyCode::Enter => {
-                            let pwd = app.input_value.clone();
-                            app.input_value.clear();
-                            app.input_mode = InputMode::Normal;
-                            app.unlock_active_vault(&pwd);
-                        }
-                        KeyCode::Esc => {
-                            app.input_mode = InputMode::Normal;
-                            app.status_message = "Unlock cancelled.".to_string();
-                        }
-                        KeyCode::Char(c) => {
-                            app.input_value.push(c);
-                        }
-                        KeyCode::Backspace => {
-                            app.input_value.pop();
-                        }
-                        _ => {}
-                    },
-                    InputMode::AddVaultPathInput => match key.code {
-                        KeyCode::Enter => {
-                            let path = app.input_value.clone();
-                            app.input_value.clear();
-                            app.input_mode = InputMode::Normal;
-                            app.add_existing_vault(&path);
-                        }
-                        KeyCode::Esc => {
-                            app.input_mode = InputMode::Normal;
-                            app.status_message = "Add vault cancelled.".to_string();
-                        }
-                        KeyCode::Char(c) => {
-                            app.input_value.push(c);
-                        }
-                        KeyCode::Backspace => {
-                            app.input_value.pop();
-                        }
-                        _ => {}
-                    },
-                    InputMode::CreateNameInput => {
-                        match key.code {
-                            KeyCode::Enter => {
-                                app.create_name = app.input_value.clone();
+        if event::poll(Duration::from_millis(200))?
+            && let Event::Key(key) = event::read()?
+        {
+            match app.input_mode {
+                InputMode::Normal => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => {
+                        return Ok(());
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        app.select_next();
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        app.select_prev();
+                    }
+                    KeyCode::Char('u') | KeyCode::Enter => {
+                        // Unlock/Lock toggle
+                        if let Some(idx) = app.list_state.selected() {
+                            let path = PathBuf::from(&app.vaults[idx].path);
+                            if app.active_mounts.contains_key(&path) {
+                                app.lock_active_vault();
+                            } else {
+                                app.input_mode = InputMode::PasswordInput;
                                 app.input_value.clear();
-                                app.input_mode = InputMode::CreatePathInput;
-                                app.status_message = "[Step 2/3] Enter absolute directory path to create vault folder:".to_string();
+                                app.status_message = "Enter vault password:".to_string();
                             }
-                            KeyCode::Esc => {
-                                app.input_mode = InputMode::Normal;
-                                app.status_message = "Creation wizard cancelled.".to_string();
-                            }
-                            KeyCode::Char(c) => {
-                                app.input_value.push(c);
-                            }
-                            KeyCode::Backspace => {
-                                app.input_value.pop();
-                            }
-                            _ => {}
                         }
                     }
-                    InputMode::CreatePathInput => match key.code {
-                        KeyCode::Enter => {
-                            app.create_path = app.input_value.clone();
-                            app.input_value.clear();
-                            app.input_mode = InputMode::CreatePasswordInput;
-                            app.status_message =
-                                "[Step 3/3] Enter master password for the new vault:".to_string();
-                        }
-                        KeyCode::Esc => {
-                            app.input_mode = InputMode::Normal;
-                            app.status_message = "Creation wizard cancelled.".to_string();
-                        }
-                        KeyCode::Char(c) => {
-                            app.input_value.push(c);
-                        }
-                        KeyCode::Backspace => {
-                            app.input_value.pop();
-                        }
-                        _ => {}
-                    },
-                    InputMode::CreatePasswordInput => match key.code {
-                        KeyCode::Enter => {
-                            let pwd = app.input_value.clone();
-                            app.input_value.clear();
-                            app.input_mode = InputMode::Normal;
-                            app.create_vault(
-                                &app.create_name.clone(),
-                                &app.create_path.clone(),
-                                &pwd,
-                            );
-                        }
-                        KeyCode::Esc => {
-                            app.input_mode = InputMode::Normal;
-                            app.status_message = "Creation wizard cancelled.".to_string();
-                        }
-                        KeyCode::Char(c) => {
-                            app.input_value.push(c);
-                        }
-                        KeyCode::Backspace => {
-                            app.input_value.pop();
-                        }
-                        _ => {}
-                    },
-                }
+                    KeyCode::Char('l') => {
+                        app.lock_active_vault();
+                    }
+                    KeyCode::Char('a') => {
+                        app.input_mode = InputMode::AddVaultPathInput;
+                        app.input_value.clear();
+                        app.status_message = "Enter path to existing vault folder:".to_string();
+                    }
+                    KeyCode::Char('c') => {
+                        app.input_mode = InputMode::CreateNameInput;
+                        app.input_value.clear();
+                        app.status_message = "[Step 1/3] Enter name for new vault:".to_string();
+                    }
+                    _ => {}
+                },
+                InputMode::PasswordInput => match key.code {
+                    KeyCode::Enter => {
+                        let pwd = app.input_value.clone();
+                        app.input_value.clear();
+                        app.input_mode = InputMode::Normal;
+                        app.unlock_active_vault(&pwd);
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.status_message = "Unlock cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
+                    }
+                    _ => {}
+                },
+                InputMode::AddVaultPathInput => match key.code {
+                    KeyCode::Enter => {
+                        let path = app.input_value.clone();
+                        app.input_value.clear();
+                        app.input_mode = InputMode::Normal;
+                        app.add_existing_vault(&path);
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.status_message = "Add vault cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
+                    }
+                    _ => {}
+                },
+                InputMode::CreateNameInput => match key.code {
+                    KeyCode::Enter => {
+                        app.create_name = app.input_value.clone();
+                        app.input_value.clear();
+                        app.input_mode = InputMode::CreatePathInput;
+                        app.status_message =
+                            "[Step 2/3] Enter absolute directory path to create vault folder:"
+                                .to_string();
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.status_message = "Creation wizard cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
+                    }
+                    _ => {}
+                },
+                InputMode::CreatePathInput => match key.code {
+                    KeyCode::Enter => {
+                        app.create_path = app.input_value.clone();
+                        app.input_value.clear();
+                        app.input_mode = InputMode::CreatePasswordInput;
+                        app.status_message =
+                            "[Step 3/3] Enter master password for the new vault:".to_string();
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.status_message = "Creation wizard cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
+                    }
+                    _ => {}
+                },
+                InputMode::CreatePasswordInput => match key.code {
+                    KeyCode::Enter => {
+                        let pwd = app.input_value.clone();
+                        app.input_value.clear();
+                        app.input_mode = InputMode::Normal;
+                        app.create_vault(&app.create_name.clone(), &app.create_path.clone(), &pwd);
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.status_message = "Creation wizard cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
+                    }
+                    _ => {}
+                },
             }
         }
     }
