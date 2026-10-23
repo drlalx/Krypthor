@@ -550,6 +550,114 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Mkdir {
+                path,
+                folder,
+                password,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => match vault::create_dir(path_buf, &master_key, &folder) {
+                        Ok(_) => {
+                            println!("Directory '{folder}' created successfully in vault.");
+                        }
+                        Err(e) => {
+                            eprintln!("Error creating directory: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Export {
+                path,
+                dest,
+                password,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                let dest_buf = Path::new(&dest);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => match vault::export_vault(path_buf, &master_key, dest_buf) {
+                        Ok(count) => {
+                            println!(
+                                "Successfully exported {count} decrypted file(s) to '{dest}'."
+                            );
+                        }
+                        Err(e) => {
+                            eprintln!("Error exporting vault: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Import {
+                path,
+                source,
+                dest,
+                password,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                let src_buf = Path::new(&source);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => {
+                        match vault::import_dir(path_buf, &master_key, src_buf, dest.as_deref()) {
+                            Ok(count) => {
+                                println!(
+                                    "Successfully imported {count} file(s) from '{source}' into vault."
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("Error importing directory: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 

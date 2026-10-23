@@ -530,6 +530,93 @@ pub fn get_vault_stats(vault_dir: &Path, master_key: &[u8; 32]) -> Result<VaultS
     })
 }
 
+pub fn create_dir(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    folder_path: &str,
+) -> Result<(), String> {
+    let trimmed = folder_path.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return Err("Folder name cannot be empty".to_string());
+    }
+    let keep_file = format!("{trimmed}/.keep");
+    write_file(vault_dir, master_key, &keep_file, b"")
+}
+
+pub fn export_vault(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    dest_dir: &Path,
+) -> Result<usize, String> {
+    fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
+    let files = list_files(vault_dir, master_key)?;
+    let mut exported_count = 0;
+
+    for rel_path in files {
+        if rel_path.ends_with("/.keep") {
+            let parent = rel_path.trim_end_matches("/.keep");
+            let target_folder = dest_dir.join(parent);
+            fs::create_dir_all(&target_folder).map_err(|e| e.to_string())?;
+        } else {
+            let content = read_file(vault_dir, master_key, &rel_path)?;
+            let dest_file_path = dest_dir.join(&rel_path);
+            if let Some(parent) = dest_file_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            fs::write(&dest_file_path, &content).map_err(|e| e.to_string())?;
+            exported_count += 1;
+        }
+    }
+
+    Ok(exported_count)
+}
+
+pub fn import_dir(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    src_dir: &Path,
+    dest_prefix: Option<&str>,
+) -> Result<usize, String> {
+    if !src_dir.is_dir() {
+        return Err(format!("'{}' is not a directory", src_dir.display()));
+    }
+
+    fn walk_and_import(
+        vault_dir: &Path,
+        master_key: &[u8; 32],
+        current_dir: &Path,
+        base_dir: &Path,
+        dest_prefix: Option<&str>,
+    ) -> Result<usize, String> {
+        let mut count = 0;
+        for entry in fs::read_dir(current_dir).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.is_dir() {
+                count += walk_and_import(vault_dir, master_key, &path, base_dir, dest_prefix)?;
+            } else if path.is_file() {
+                let rel = path
+                    .strip_prefix(base_dir)
+                    .map_err(|e| e.to_string())?
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                let target_path = match dest_prefix {
+                    Some(prefix) if !prefix.trim().trim_matches('/').is_empty() => {
+                        format!("{}/{}", prefix.trim().trim_matches('/'), rel)
+                    }
+                    _ => rel,
+                };
+                let content = fs::read(&path).map_err(|e| e.to_string())?;
+                write_file(vault_dir, master_key, &target_path, &content)?;
+                count += 1;
+            }
+        }
+        Ok(count)
+    }
+
+    walk_and_import(vault_dir, master_key, src_dir, src_dir, dest_prefix)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -785,5 +872,59 @@ mod tests {
         assert_eq!(details[1].size, 9);
 
         let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_create_dir_import_export() {
+        let test_dir = std::env::temp_dir().join("cryptomator_import_export_test");
+        let src_dir = std::env::temp_dir().join("cryptomator_test_src_tree");
+        let dest_dir = std::env::temp_dir().join("cryptomator_test_dest_tree");
+
+        let _ = fs::remove_dir_all(&test_dir);
+        let _ = fs::remove_dir_all(&src_dir);
+        let _ = fs::remove_dir_all(&dest_dir);
+
+        create_vault(&test_dir, "export_pw", None).unwrap();
+        let key = unlock_vault(&test_dir, "export_pw", None).unwrap();
+
+        // 1. Test create_dir
+        create_dir(&test_dir, &key, "empty_folder").unwrap();
+        let files = list_files(&test_dir, &key).unwrap();
+        assert!(files.contains(&"empty_folder/.keep".to_string()));
+
+        // 2. Prepare local files for import
+        fs::create_dir_all(src_dir.join("nested/folder")).unwrap();
+        fs::write(src_dir.join("doc1.txt"), b"Document 1 Content").unwrap();
+        fs::write(
+            src_dir.join("nested/folder/doc2.txt"),
+            b"Document 2 Content",
+        )
+        .unwrap();
+
+        // 3. Import directory into vault
+        let imported = import_dir(&test_dir, &key, &src_dir, Some("backup")).unwrap();
+        assert_eq!(imported, 2);
+
+        let files = list_files(&test_dir, &key).unwrap();
+        assert!(files.contains(&"backup/doc1.txt".to_string()));
+        assert!(files.contains(&"backup/nested/folder/doc2.txt".to_string()));
+
+        // 4. Export entire vault to dest_dir
+        let exported = export_vault(&test_dir, &key, &dest_dir).unwrap();
+        assert_eq!(exported, 2);
+
+        assert_eq!(
+            fs::read(dest_dir.join("backup/doc1.txt")).unwrap(),
+            b"Document 1 Content"
+        );
+        assert_eq!(
+            fs::read(dest_dir.join("backup/nested/folder/doc2.txt")).unwrap(),
+            b"Document 2 Content"
+        );
+        assert!(dest_dir.join("empty_folder").is_dir());
+
+        let _ = fs::remove_dir_all(&test_dir);
+        let _ = fs::remove_dir_all(&src_dir);
+        let _ = fs::remove_dir_all(&dest_dir);
     }
 }

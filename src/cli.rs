@@ -157,4 +157,43 @@ pub enum Commands {
         #[arg(long)]
         password: Option<String>,
     },
+    /// Create a directory inside the vault
+    Mkdir {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Relative path of the folder to create inside the vault
+        #[arg(short, long)]
+        folder: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Export and decrypt the entire vault into a local directory
+    Export {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Target destination directory to write decrypted files
+        #[arg(short, long)]
+        dest: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Recursively encrypt and import a local directory into the vault
+    Import {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Local directory to import
+        #[arg(short, long)]
+        source: String,
+        /// Optional target directory prefix inside the vault
+        #[arg(short, long)]
+        dest: Option<String>,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
 }

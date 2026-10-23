@@ -158,6 +158,21 @@ cargo run --release -- mv --path "/pfad/zum/tresor" --old-path "dokumente/alt.tx
 cargo run --release -- stats --path "/pfad/zum/tresor"
 ```
 
+#### Verzeichnis im Tresor erstellen (mkdir)
+```bash
+cargo run --release -- mkdir --path "/pfad/zum/tresor" --folder "projekte/geheim"
+```
+
+#### Gesamten Tresor in lokales Verzeichnis exportieren (export)
+```bash
+cargo run --release -- export --path "/pfad/zum/tresor" --dest "/pfad/zum/zielordner"
+```
+
+#### Lokales Verzeichnis rekursiv in den Tresor importieren (import)
+```bash
+cargo run --release -- import --path "/pfad/zum/tresor" --source "/pfad/zur/quelle" --dest "backup"
+```
+
 ## Projektstruktur
 
 - [`src/main.rs`](src/main.rs): Einstiegspunkt, CLI-Argument-Parsing (`clap`) und Befehls-Dispatching.

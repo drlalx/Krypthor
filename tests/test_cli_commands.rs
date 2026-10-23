@@ -212,7 +212,79 @@ fn test_cli_vault_workflow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Vault is empty."));
 
+    // 14. Create folder via CLI (mkdir)
+    let output = Command::new(bin_path)
+        .args([
+            "mkdir",
+            "--path",
+            &vault_path,
+            "--folder",
+            "documents/legal",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute mkdir command");
+    assert!(output.status.success());
+
+    // 15. Import directory via CLI (import)
+    let import_src = std::env::temp_dir().join("cryptomator_cli_import_source");
+    let _ = fs::remove_dir_all(&import_src);
+    fs::create_dir_all(import_src.join("sub")).unwrap();
+    fs::write(import_src.join("a.txt"), b"File A content").unwrap();
+    fs::write(import_src.join("sub/b.txt"), b"File B content").unwrap();
+
+    let output = Command::new(bin_path)
+        .args([
+            "import",
+            "--path",
+            &vault_path,
+            "--source",
+            &import_src.to_string_lossy().to_string(),
+            "--dest",
+            "imported",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute import command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Successfully imported 2 file(s)"));
+
+    // 16. Export vault via CLI (export)
+    let export_dst = std::env::temp_dir().join("cryptomator_cli_export_target");
+    let _ = fs::remove_dir_all(&export_dst);
+
+    let output = Command::new(bin_path)
+        .args([
+            "export",
+            "--path",
+            &vault_path,
+            "--dest",
+            &export_dst.to_string_lossy().to_string(),
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute export command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Successfully exported 2 decrypted file(s)"));
+
+    assert_eq!(
+        fs::read(export_dst.join("imported/a.txt")).unwrap(),
+        b"File A content"
+    );
+    assert_eq!(
+        fs::read(export_dst.join("imported/sub/b.txt")).unwrap(),
+        b"File B content"
+    );
+    assert!(export_dst.join("documents/legal").is_dir());
+
     let _ = fs::remove_file(&tmp_src);
+    let _ = fs::remove_dir_all(&import_src);
+    let _ = fs::remove_dir_all(&export_dst);
 
     // Cleanup
     let _ = fs::remove_dir_all(&test_dir);

@@ -581,18 +581,8 @@ async fn mkdir_handler(
         })?;
 
     let trimmed = payload.folder_path.trim().trim_matches('/');
-    if trimmed.is_empty() {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: "Invalid folder path".into(),
-            }),
-        ));
-    }
-
-    let keep_file = format!("{trimmed}/.keep");
     let vault_dir = Path::new(&payload.vault_path);
-    vault::write_file(vault_dir, &master_key, &keep_file, b"").map_err(|e| {
+    vault::create_dir(vault_dir, &master_key, trimmed).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
