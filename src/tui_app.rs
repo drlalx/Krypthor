@@ -47,11 +47,13 @@ fn save_saved_vaults(vaults: &[SavedVault]) {
 enum InputMode {
     Normal,
     PasswordInput,
+    UnlockKeyfileInput,
     RecoverKeyInput,
     AddVaultPathInput,
     CreateNameInput,
     CreatePathInput,
     CreatePasswordInput,
+    CreateKeyfileInput,
     RenameVaultInput,
 }
 
@@ -65,9 +67,13 @@ struct TuiApp {
     status_message: String,
     status_is_error: bool,
 
+    // Unlock state
+    temp_password: String,
+
     // Create Wizard state
     create_name: String,
     create_path: String,
+    create_password: String,
 }
 
 impl TuiApp {
@@ -86,8 +92,10 @@ impl TuiApp {
             input_value: String::new(),
             status_message: "Welcome to Cryptomator RS TUI!".to_string(),
             status_is_error: false,
+            temp_password: String::new(),
             create_name: String::new(),
             create_path: String::new(),
+            create_password: String::new(),
         }
     }
 
@@ -125,14 +133,15 @@ impl TuiApp {
         self.list_state.select(Some(i));
     }
 
-    fn unlock_active_vault(&mut self, password: &str) {
+    fn unlock_active_vault(&mut self, password: &str, keyfile: Option<&str>) {
         let Some(idx) = self.list_state.selected() else {
             return;
         };
         let vault = self.vaults[idx].clone();
         let vault_path = PathBuf::from(&vault.path);
+        let kf_path = keyfile.map(Path::new);
 
-        match vault::unlock_vault(&vault_path, password, None) {
+        match vault::unlock_vault(&vault_path, password, kf_path) {
             Ok(master_key) => {
                 self.mount_unlocked_vault(vault_path, master_key, &vault.name);
             }
@@ -250,9 +259,10 @@ impl TuiApp {
         self.status_is_error = false;
     }
 
-    fn create_vault(&mut self, name: &str, path_str: &str, password: &str) {
+    fn create_vault(&mut self, name: &str, path_str: &str, password: &str, keyfile: Option<&str>) {
         let path = Path::new(path_str.trim());
-        match vault::create_vault(path, password, None) {
+        let kf_path = keyfile.map(Path::new);
+        match vault::create_vault(path, password, kf_path) {
             Ok(_) => {
                 self.vaults.push(SavedVault {
                     name: name.to_string(),
@@ -344,7 +354,40 @@ fn run_loop<B: ratatui::backend::Backend>(
                     KeyCode::Char('c') => {
                         app.input_mode = InputMode::CreateNameInput;
                         app.input_value.clear();
-                        app.status_message = "[Step 1/3] Enter name for new vault:".to_string();
+                        app.status_message = "[Step 1/4] Enter name for new vault:".to_string();
+                    }
+                    KeyCode::Char('v') => {
+                        if let Some(idx) = app.list_state.selected() {
+                            let path = PathBuf::from(&app.vaults[idx].path);
+                            if let Some(key) = app.unlocked_keys.get(&path) {
+                                match vault::verify_vault_integrity(&path, key) {
+                                    Ok(report) => {
+                                        if report.is_healthy {
+                                            app.status_message = format!(
+                                                "Integrity HEALTHY: {} valid file(s) checked.",
+                                                report.valid_files
+                                            );
+                                            app.status_is_error = false;
+                                        } else {
+                                            app.status_message = format!(
+                                                "Integrity CORRUPTED: {} corrupted, {} orphaned file(s)!",
+                                                report.corrupted_files.len(),
+                                                report.orphaned_files.len()
+                                            );
+                                            app.status_is_error = true;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        app.status_message = format!("Integrity check failed: {e}");
+                                        app.status_is_error = true;
+                                    }
+                                }
+                            } else {
+                                app.status_message =
+                                    "Vault must be unlocked to verify integrity.".to_string();
+                                app.status_is_error = true;
+                            }
+                        }
                     }
                     KeyCode::Char('r') => {
                         if app.list_state.selected().is_some() {
@@ -414,13 +457,44 @@ fn run_loop<B: ratatui::backend::Backend>(
                 },
                 InputMode::PasswordInput => match key.code {
                     KeyCode::Enter => {
-                        let pwd = app.input_value.clone();
+                        app.temp_password = app.input_value.clone();
                         app.input_value.clear();
-                        app.input_mode = InputMode::Normal;
-                        app.unlock_active_vault(&pwd);
+                        app.input_mode = InputMode::UnlockKeyfileInput;
+                        app.status_message =
+                            "Enter keyfile path (optional, press Enter to skip):".to_string();
                     }
                     KeyCode::Esc => {
                         app.input_mode = InputMode::Normal;
+                        app.input_value.clear();
+                        app.temp_password.clear();
+                        app.status_message = "Unlock cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
+                    }
+                    _ => {}
+                },
+                InputMode::UnlockKeyfileInput => match key.code {
+                    KeyCode::Enter => {
+                        let kf_str = app.input_value.trim().to_string();
+                        let kf = if kf_str.is_empty() {
+                            None
+                        } else {
+                            Some(kf_str)
+                        };
+                        let pwd = app.temp_password.clone();
+                        app.input_value.clear();
+                        app.temp_password.clear();
+                        app.input_mode = InputMode::Normal;
+                        app.unlock_active_vault(&pwd, kf.as_deref());
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.input_value.clear();
+                        app.temp_password.clear();
                         app.status_message = "Unlock cancelled.".to_string();
                     }
                     KeyCode::Char(c) => {
@@ -456,11 +530,14 @@ fn run_loop<B: ratatui::backend::Backend>(
                         app.input_value.clear();
                         app.input_mode = InputMode::CreatePathInput;
                         app.status_message =
-                            "[Step 2/3] Enter absolute directory path to create vault folder:"
+                            "[Step 2/4] Enter absolute directory path to create vault folder:"
                                 .to_string();
                     }
                     KeyCode::Esc => {
                         app.input_mode = InputMode::Normal;
+                        app.create_name.clear();
+                        app.create_path.clear();
+                        app.create_password.clear();
                         app.status_message = "Creation wizard cancelled.".to_string();
                     }
                     KeyCode::Char(c) => {
@@ -477,10 +554,13 @@ fn run_loop<B: ratatui::backend::Backend>(
                         app.input_value.clear();
                         app.input_mode = InputMode::CreatePasswordInput;
                         app.status_message =
-                            "[Step 3/3] Enter master password for the new vault:".to_string();
+                            "[Step 3/4] Enter master password for the new vault:".to_string();
                     }
                     KeyCode::Esc => {
                         app.input_mode = InputMode::Normal;
+                        app.create_name.clear();
+                        app.create_path.clear();
+                        app.create_password.clear();
                         app.status_message = "Creation wizard cancelled.".to_string();
                     }
                     KeyCode::Char(c) => {
@@ -493,13 +573,52 @@ fn run_loop<B: ratatui::backend::Backend>(
                 },
                 InputMode::CreatePasswordInput => match key.code {
                     KeyCode::Enter => {
-                        let pwd = app.input_value.clone();
+                        app.create_password = app.input_value.clone();
                         app.input_value.clear();
-                        app.input_mode = InputMode::Normal;
-                        app.create_vault(&app.create_name.clone(), &app.create_path.clone(), &pwd);
+                        app.input_mode = InputMode::CreateKeyfileInput;
+                        app.status_message =
+                            "[Step 4/4] Enter keyfile path for 2FA (optional, press Enter to skip):"
+                                .to_string();
                     }
                     KeyCode::Esc => {
                         app.input_mode = InputMode::Normal;
+                        app.create_name.clear();
+                        app.create_path.clear();
+                        app.create_password.clear();
+                        app.status_message = "Creation wizard cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
+                    }
+                    _ => {}
+                },
+                InputMode::CreateKeyfileInput => match key.code {
+                    KeyCode::Enter => {
+                        let kf_str = app.input_value.trim().to_string();
+                        let kf = if kf_str.is_empty() {
+                            None
+                        } else {
+                            Some(kf_str)
+                        };
+                        let name = app.create_name.clone();
+                        let path = app.create_path.clone();
+                        let pwd = app.create_password.clone();
+                        app.create_name.clear();
+                        app.create_path.clear();
+                        app.create_password.clear();
+                        app.input_value.clear();
+                        app.input_mode = InputMode::Normal;
+                        app.create_vault(&name, &path, &pwd, kf.as_deref());
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.input_value.clear();
+                        app.create_name.clear();
+                        app.create_path.clear();
+                        app.create_password.clear();
                         app.status_message = "Creation wizard cancelled.".to_string();
                     }
                     KeyCode::Char(c) => {
@@ -775,11 +894,13 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         _ => {
             let input_title = match app.input_mode {
                 InputMode::PasswordInput => " Enter Password ",
+                InputMode::UnlockKeyfileInput => " Keyfile Path (Optional) ",
                 InputMode::RecoverKeyInput => " Enter 64-char Recovery Key ",
                 InputMode::AddVaultPathInput => " Path to Existing Vault ",
-                InputMode::CreateNameInput => " New Vault Name (1/3) ",
-                InputMode::CreatePathInput => " Base Folder Path (2/3) ",
-                InputMode::CreatePasswordInput => " Set Password (3/3) ",
+                InputMode::CreateNameInput => " New Vault Name (1/4) ",
+                InputMode::CreatePathInput => " Base Folder Path (2/4) ",
+                InputMode::CreatePasswordInput => " Set Password (3/4) ",
+                InputMode::CreateKeyfileInput => " Keyfile Path (4/4, Optional) ",
                 InputMode::RenameVaultInput => " Rename Vault Display Name ",
                 InputMode::Normal => " Input ",
             };
@@ -828,7 +949,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .style(Style::default().bg(theme_dark_bg));
 
     let bindings_text = Span::styled(
-        " [↑/↓] Select  [Enter] Toggle  [n] Rename  [d] Remove  [r] Recover  [x] Key  [a] Add  [c] Create  [q] Quit",
+        " [↑/↓] Select  [Enter] Toggle  [v] Verify  [n] Rename  [d] Remove  [r] Recover  [x] Key  [a] Add  [c] Create  [q] Quit",
         Style::default().fg(theme_cyan),
     );
 

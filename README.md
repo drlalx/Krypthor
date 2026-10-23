@@ -68,14 +68,15 @@ cargo run --release -- tui
 cargo run --release -- --tui
 ```
 - `[↑/↓]` oder `[j/k]`: Tresor auswählen
-- `[Enter]` oder `[u]`: Tresor mit Passwort entsperren & FUSE-Mount aktivieren
+- `[Enter]` oder `[u]`: Tresor mit Passwort & optionaler Schlüsseldatei entsperren & FUSE-Mount aktivieren
+- `[v]`: Kryptografische Integritätsprüfung für entsperrten Tresor ausführen
 - `[n]`: Ausgewählten Tresor umbenennen
 - `[d]`: Ausgewählten Tresor aus der Liste entfernen
 - `[r]`: Tresor mit 64-stelligem Recovery-Key wiederherstellen & mounten
 - `[x]`: Wiederherstellungsschlüssel des entsperrten Tresors anzeigen
 - `[l]`: Tresor sperren & unmounten
 - `[a]`: Bestehenden Tresorpfad registrieren
-- `[c]`: Neuen Tresor interaktiv erstellen
+- `[c]`: Neuen Tresor interaktiv erstellen (4-stufiger Assistent inkl. optionaler 2FA-Schlüsseldatei)
 - `[q]`: TUI beenden
 
 ### 3. Web-Client & Daemon (Syncthing-Stil)
