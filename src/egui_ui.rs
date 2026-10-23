@@ -67,10 +67,13 @@ struct CryptomatorApp {
     create_keyfile_path: Option<PathBuf>,
 
     // File manager inside unlocked vault
-    vault_files: Vec<String>,
+    vault_files: Vec<vault::FileItem>,
+    file_search_query: String,
     new_file_modal_open: bool,
     new_file_name: String,
     new_file_content: String,
+    new_folder_modal_open: bool,
+    new_folder_name: String,
     rename_modal_open: bool,
     rename_target: String,
     rename_new_name: String,
@@ -152,9 +155,12 @@ impl CryptomatorApp {
             create_keyfile_path: None,
 
             vault_files: Vec::new(),
+            file_search_query: String::new(),
             new_file_modal_open: false,
             new_file_name: String::new(),
             new_file_content: String::new(),
+            new_folder_modal_open: false,
+            new_folder_name: String::new(),
             rename_modal_open: false,
             rename_target: String::new(),
             rename_new_name: String::new(),
@@ -229,7 +235,7 @@ impl CryptomatorApp {
         {
             let path = PathBuf::from(&vault.path);
             if let Some(key) = self.unlocked_vaults.get(&path) {
-                match vault::list_files(&path, key) {
+                match vault::list_files_with_details(&path, key) {
                     Ok(files) => {
                         self.vault_files = files;
                     }
@@ -1025,6 +1031,11 @@ impl CryptomatorApp {
             if ui.button("🔄 Refresh").clicked() {
                 self.refresh_vault_files();
             }
+            ui.add(
+                egui::TextEdit::singleline(&mut self.file_search_query)
+                    .hint_text("🔍 Search...")
+                    .desired_width(120.0),
+            );
             if ui
                 .add(Button::new("📥 Import File").accent(Accent::Blue))
                 .clicked()
@@ -1056,10 +1067,93 @@ impl CryptomatorApp {
                     }
                 }
             }
+            if ui.button("📂 Import Folder").clicked()
+                && let Some(folder_path) = rfd::FileDialog::new().pick_folder()
+            {
+                match vault::import_dir(vault_path, &master_key, &folder_path, None) {
+                    Ok(count) => {
+                        self.refresh_vault_files();
+                        self.status_message = Some((
+                            format!("Imported {count} file(s) from {}", folder_path.display()),
+                            false,
+                        ));
+                    }
+                    Err(e) => {
+                        self.status_message = Some((format!("Error importing folder: {e}"), true));
+                    }
+                }
+            }
+            if ui.button("📦 Export Vault").clicked()
+                && let Some(dest_dir) = rfd::FileDialog::new().pick_folder()
+            {
+                match vault::export_vault(vault_path, &master_key, &dest_dir) {
+                    Ok(count) => {
+                        self.status_message = Some((
+                            format!(
+                                "Exported {count} decrypted file(s) to {}",
+                                dest_dir.display()
+                            ),
+                            false,
+                        ));
+                    }
+                    Err(e) => {
+                        self.status_message = Some((format!("Error exporting vault: {e}"), true));
+                    }
+                }
+            }
+            if ui.button("📁 New Folder").clicked() {
+                self.new_folder_modal_open = !self.new_folder_modal_open;
+            }
             if ui.button("➕ New Text File").clicked() {
                 self.new_file_modal_open = !self.new_file_modal_open;
             }
         });
+
+        ui.add_space(8.0);
+
+        // New Folder Inline Card
+        if self.new_folder_modal_open {
+            Card::new().heading("Create New Folder").show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Folder path:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.new_folder_name)
+                            .hint_text("documents/subfolder"),
+                    );
+                });
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(Button::new("Create Folder").accent(Accent::Green))
+                        .clicked()
+                    {
+                        let name = self.new_folder_name.trim().to_string();
+                        if name.is_empty() {
+                            self.status_message =
+                                Some(("Folder path cannot be empty.".to_string(), true));
+                        } else {
+                            match vault::create_dir(vault_path, &master_key, &name) {
+                                Ok(_) => {
+                                    self.new_folder_modal_open = false;
+                                    self.new_folder_name.clear();
+                                    self.refresh_vault_files();
+                                    self.status_message =
+                                        Some((format!("Folder '{name}' created."), false));
+                                }
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Error creating folder: {e}"), true));
+                                }
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.new_folder_modal_open = false;
+                    }
+                });
+            });
+            ui.add_space(10.0);
+        }
 
         ui.add_space(8.0);
 
@@ -1256,32 +1350,49 @@ impl CryptomatorApp {
 
         // Files List
         egui::ScrollArea::vertical().show(ui, |ui| {
+            let query = self.file_search_query.trim().to_lowercase();
+            let files_to_display: Vec<&vault::FileItem> = self
+                .vault_files
+                .iter()
+                .filter(|f| !f.path.ends_with("/.keep"))
+                .filter(|f| query.is_empty() || f.path.to_lowercase().contains(&query))
+                .collect();
+
             if self.vault_files.is_empty() {
                 ui.add_space(20.0);
                 ui.label(RichText::new("Vault is empty. Click 'Import File' or 'New Text File' above to add documents.").color(Color32::GRAY).italics());
+            } else if files_to_display.is_empty() && !query.is_empty() {
+                ui.add_space(20.0);
+                ui.label(RichText::new(format!("No files matching '{query}'.")).color(Color32::GRAY).italics());
             } else {
                 let mut file_to_export = None;
                 let mut file_to_delete = None;
                 let mut file_to_rename = None;
                 let mut file_to_preview = None;
 
-                for file in &self.vault_files {
+                for file in files_to_display {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new("📄").size(16.0));
-                        ui.label(RichText::new(file).strong());
+                        let icon = file_icon(&file.path);
+                        ui.label(RichText::new(icon).size(16.0));
+                        ui.label(RichText::new(&file.path).strong());
+                        ui.label(
+                            RichText::new(format!("({})", format_bytes_gui(file.size)))
+                                .color(Color32::from_rgb(140, 150, 170))
+                                .size(12.0),
+                        );
 
                         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                             if ui.button("🗑 Delete").clicked() {
-                                file_to_delete = Some(file.clone());
+                                file_to_delete = Some(file.path.clone());
                             }
                             if ui.button("✏ Rename").clicked() {
-                                file_to_rename = Some(file.clone());
+                                file_to_rename = Some(file.path.clone());
                             }
                             if ui.button("💾 Export").clicked() {
-                                file_to_export = Some(file.clone());
+                                file_to_export = Some(file.path.clone());
                             }
                             if ui.button("👁 View").clicked() {
-                                file_to_preview = Some(file.clone());
+                                file_to_preview = Some(file.path.clone());
                             }
                         });
                     });
@@ -1350,6 +1461,13 @@ impl CryptomatorApp {
     }
 
     fn render_stats_tab(&mut self, ui: &mut egui::Ui, _vault_path: &Path) {
+        let total_size: u64 = self.vault_files.iter().map(|f| f.size).sum();
+        let non_keep_count = self
+            .vault_files
+            .iter()
+            .filter(|f| !f.path.ends_with("/.keep"))
+            .count();
+
         Card::new()
             .heading("Cryptographic Architecture")
             .show(ui, |ui| {
@@ -1358,9 +1476,10 @@ impl CryptomatorApp {
                 ui.label(
                     "• Path & File Obfuscation: Deterministic SHA-256(master_key || relative_path)",
                 );
+                ui.label(format!("• Decrypted Files in Vault: {non_keep_count}"));
                 ui.label(format!(
-                    "• Decrypted Files in Vault: {}",
-                    self.vault_files.len()
+                    "• Total Storage Used: {}",
+                    format_bytes_gui(total_size)
                 ));
                 #[cfg(unix)]
                 {
@@ -1428,5 +1547,58 @@ impl CryptomatorApp {
                     }
                 }
             });
+    }
+}
+
+fn format_bytes_gui(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    }
+}
+
+fn file_icon(path: &str) -> &'static str {
+    let lower = path.to_lowercase();
+    if lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".gif")
+        || lower.ends_with(".webp")
+        || lower.ends_with(".svg")
+    {
+        "🖼️"
+    } else if lower.ends_with(".pdf") {
+        "📕"
+    } else if lower.ends_with(".zip")
+        || lower.ends_with(".tar")
+        || lower.ends_with(".gz")
+        || lower.ends_with(".7z")
+        || lower.ends_with(".rar")
+    {
+        "📦"
+    } else if lower.ends_with(".mp3")
+        || lower.ends_with(".wav")
+        || lower.ends_with(".flac")
+        || lower.ends_with(".mp4")
+        || lower.ends_with(".mkv")
+    {
+        "🎬"
+    } else if lower.ends_with(".rs")
+        || lower.ends_with(".py")
+        || lower.ends_with(".js")
+        || lower.ends_with(".json")
+        || lower.ends_with(".toml")
+        || lower.ends_with(".html")
+        || lower.ends_with(".css")
+        || lower.ends_with(".md")
+    {
+        "💻"
+    } else {
+        "📄"
     }
 }
