@@ -52,6 +52,7 @@ enum InputMode {
     CreateNameInput,
     CreatePathInput,
     CreatePasswordInput,
+    RenameVaultInput,
 }
 
 struct TuiApp {
@@ -353,6 +354,29 @@ fn run_loop<B: ratatui::backend::Backend>(
                                 "Enter 64-char recovery key to unlock:".to_string();
                         }
                     }
+                    KeyCode::Char('n') => {
+                        if let Some(idx) = app.list_state.selected() {
+                            let current_name = app.vaults[idx].name.clone();
+                            app.input_mode = InputMode::RenameVaultInput;
+                            app.input_value = current_name.clone();
+                            app.status_message = format!("Enter new name for '{current_name}':");
+                        }
+                    }
+                    KeyCode::Char('d') => {
+                        if let Some(idx) = app.list_state.selected() {
+                            let vault = app.vaults.remove(idx);
+                            save_saved_vaults(&app.vaults);
+                            if !app.vaults.is_empty() {
+                                let new_idx = idx.min(app.vaults.len() - 1);
+                                app.list_state.select(Some(new_idx));
+                            } else {
+                                app.list_state.select(None);
+                            }
+                            app.status_message =
+                                format!("Removed '{}' from vault list.", vault.name);
+                            app.status_is_error = false;
+                        }
+                    }
                     KeyCode::Char('x') => {
                         if let Some(idx) = app.list_state.selected() {
                             let path = PathBuf::from(&app.vaults[idx].path);
@@ -477,6 +501,35 @@ fn run_loop<B: ratatui::backend::Backend>(
                     KeyCode::Esc => {
                         app.input_mode = InputMode::Normal;
                         app.status_message = "Creation wizard cancelled.".to_string();
+                    }
+                    KeyCode::Char(c) => {
+                        app.input_value.push(c);
+                    }
+                    KeyCode::Backspace => {
+                        app.input_value.pop();
+                    }
+                    _ => {}
+                },
+                InputMode::RenameVaultInput => match key.code {
+                    KeyCode::Enter => {
+                        let new_name = app.input_value.trim().to_string();
+                        app.input_value.clear();
+                        app.input_mode = InputMode::Normal;
+                        if let Some(idx) = app.list_state.selected() {
+                            if !new_name.is_empty() {
+                                app.vaults[idx].name = new_name.clone();
+                                save_saved_vaults(&app.vaults);
+                                app.status_message = format!("Vault renamed to '{new_name}'.");
+                                app.status_is_error = false;
+                            } else {
+                                app.status_message = "Vault name cannot be empty.".to_string();
+                                app.status_is_error = true;
+                            }
+                        }
+                    }
+                    KeyCode::Esc => {
+                        app.input_mode = InputMode::Normal;
+                        app.status_message = "Rename cancelled.".to_string();
                     }
                     KeyCode::Char(c) => {
                         app.input_value.push(c);
@@ -634,17 +687,48 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
                 ),
             ]));
 
-            if let Some(master_key) = app.unlocked_keys.get(&path)
-                && let Ok(stats) = vault::get_vault_stats(&path, master_key)
-            {
-                let size_mb = stats.total_size_bytes as f64 / (1024.0 * 1024.0);
-                detail_lines.push(Line::from(vec![
-                    Span::styled("Contents:     ", Style::default().fg(Color::Gray)),
-                    Span::styled(
-                        format!("{} file(s), {:.2} MB", stats.total_files, size_mb),
-                        Style::default().fg(theme_cyan),
-                    ),
-                ]));
+            if let Some(master_key) = app.unlocked_keys.get(&path) {
+                if let Ok(stats) = vault::get_vault_stats(&path, master_key) {
+                    let size_mb = stats.total_size_bytes as f64 / (1024.0 * 1024.0);
+                    detail_lines.push(Line::from(vec![
+                        Span::styled("Contents:     ", Style::default().fg(Color::Gray)),
+                        Span::styled(
+                            format!("{} file(s), {:.2} MB", stats.total_files, size_mb),
+                            Style::default().fg(theme_cyan),
+                        ),
+                    ]));
+                }
+
+                if let Ok(files) = vault::list_files_with_details(&path, master_key) {
+                    let visible: Vec<&vault::FileItem> = files
+                        .iter()
+                        .filter(|f| !f.path.ends_with("/.keep"))
+                        .collect();
+                    if !visible.is_empty() {
+                        detail_lines.push(Line::from(""));
+                        detail_lines.push(Line::from(Span::styled(
+                            "Decrypted Files in Vault:",
+                            Style::default().fg(theme_cyan).add_modifier(Modifier::BOLD),
+                        )));
+                        for f in visible.iter().take(5) {
+                            let size_kb = f.size as f64 / 1024.0;
+                            detail_lines.push(Line::from(vec![
+                                Span::styled("  • ", Style::default().fg(Color::DarkGray)),
+                                Span::styled(f.path.clone(), Style::default().fg(Color::White)),
+                                Span::styled(
+                                    format!(" ({:.1} KB)", size_kb),
+                                    Style::default().fg(Color::DarkGray),
+                                ),
+                            ]));
+                        }
+                        if visible.len() > 5 {
+                            detail_lines.push(Line::from(Span::styled(
+                                format!("  ... and {} more file(s)", visible.len() - 5),
+                                Style::default().fg(Color::DarkGray),
+                            )));
+                        }
+                    }
+                }
             }
 
             detail_lines.push(Line::from(""));
@@ -696,6 +780,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
                 InputMode::CreateNameInput => " New Vault Name (1/3) ",
                 InputMode::CreatePathInput => " Base Folder Path (2/3) ",
                 InputMode::CreatePasswordInput => " Set Password (3/3) ",
+                InputMode::RenameVaultInput => " Rename Vault Display Name ",
                 InputMode::Normal => " Input ",
             };
 
@@ -743,7 +828,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .style(Style::default().bg(theme_dark_bg));
 
     let bindings_text = Span::styled(
-        " [↑/↓] Select  [Enter/u] Toggle Unlock  [r] Recover with Key  [x] Export Key  [l] Lock  [a] Add  [c] Create  [q] Quit",
+        " [↑/↓] Select  [Enter] Toggle  [n] Rename  [d] Remove  [r] Recover  [x] Key  [a] Add  [c] Create  [q] Quit",
         Style::default().fg(theme_cyan),
     );
 
