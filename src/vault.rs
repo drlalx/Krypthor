@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static WRITE_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -327,6 +327,74 @@ pub fn load_master_key_file(vault_dir: &Path) -> Result<MasterKeyFile, String> {
     } else {
         Err("masterkey.json not found".to_string())
     }
+}
+
+pub fn create_masterkey_backup(
+    vault_dir: &Path,
+    custom_backup_path: Option<&Path>,
+) -> Result<PathBuf, String> {
+    let primary_path = vault_dir.join("masterkey.json");
+    if !primary_path.exists() {
+        return Err("masterkey.json not found to backup".to_string());
+    }
+
+    let content = fs::read_to_string(&primary_path)
+        .map_err(|e| format!("Failed to read masterkey.json: {e}"))?;
+
+    // Verify validity before creating backup
+    let _key_file: MasterKeyFile = serde_json::from_str(&content)
+        .map_err(|e| format!("Cannot backup invalid masterkey: {e}"))?;
+
+    let dest = match custom_backup_path {
+        Some(p) => p.to_path_buf(),
+        None => {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            vault_dir.join(format!("masterkey.json.bkup.{timestamp}"))
+        }
+    };
+
+    fs::write(&dest, content.as_bytes())
+        .map_err(|e| format!("Failed to write backup to {}: {e}", dest.display()))?;
+
+    // Also ensure default masterkey.json.bkup is up to date
+    let default_bkup = vault_dir.join("masterkey.json.bkup");
+    let _ = fs::copy(&primary_path, &default_bkup);
+
+    Ok(dest)
+}
+
+pub fn restore_masterkey_backup(
+    vault_dir: &Path,
+    custom_backup_path: Option<&Path>,
+) -> Result<(), String> {
+    let bkup_path = match custom_backup_path {
+        Some(p) => p.to_path_buf(),
+        None => vault_dir.join("masterkey.json.bkup"),
+    };
+
+    if !bkup_path.exists() {
+        return Err(format!("Backup file not found at {}", bkup_path.display()));
+    }
+
+    let content =
+        fs::read_to_string(&bkup_path).map_err(|e| format!("Failed to read backup file: {e}"))?;
+
+    // Verify it is a valid MasterKeyFile
+    let _key_file: MasterKeyFile = serde_json::from_str(&content)
+        .map_err(|e| format!("Backup file is not a valid masterkey: {e}"))?;
+
+    let primary_path = vault_dir.join("masterkey.json");
+    let tmp_path = vault_dir.join("masterkey.json.tmp");
+
+    fs::write(&tmp_path, content.as_bytes())
+        .map_err(|e| format!("Failed to write temporary masterkey: {e}"))?;
+    fs::rename(&tmp_path, &primary_path)
+        .map_err(|e| format!("Failed to atomically restore masterkey: {e}"))?;
+
+    Ok(())
 }
 
 pub fn export_recovery_key(master_key: &[u8; 32]) -> String {

@@ -338,6 +338,53 @@ fn test_cli_vault_workflow() {
     assert!(stdout.contains("Status:           HEALTHY"));
     assert!(stdout.contains("Valid Files:      3"));
 
+    // 22. Backup masterkey via CLI (backup-key)
+    let custom_backup = test_dir.join("explicit_backup.json");
+    let output = Command::new(bin_path)
+        .args([
+            "backup-key",
+            "--path",
+            &vault_path,
+            "--out",
+            &custom_backup.to_string_lossy(),
+        ])
+        .output()
+        .expect("Failed to execute backup-key command");
+    assert!(output.status.success());
+    assert!(custom_backup.exists());
+
+    // 23. Corrupt primary masterkey.json
+    let primary_mk = test_dir.join("masterkey.json");
+    fs::write(&primary_mk, b"broken json").unwrap();
+
+    // 24. Restore masterkey via CLI (restore-key)
+    let output = Command::new(bin_path)
+        .args([
+            "restore-key",
+            "--path",
+            &vault_path,
+            "--from",
+            &custom_backup.to_string_lossy(),
+        ])
+        .output()
+        .expect("Failed to execute restore-key command");
+    assert!(output.status.success());
+
+    // 25. Verify vault again to confirm healthy restored masterkey
+    let output = Command::new(bin_path)
+        .args([
+            "verify",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute verify command after restore");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Status:           HEALTHY"));
+
     // Cleanup vault from vaults.json
     let _ = Command::new(bin_path)
         .args(["remove", "--path", &vault_path])

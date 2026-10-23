@@ -795,6 +795,38 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::BackupKey { path, out } => {
+                let path_buf = Path::new(&path);
+                match vault::create_masterkey_backup(path_buf, out.as_deref().map(Path::new)) {
+                    Ok(dest) => {
+                        println!(
+                            "Masterkey backup created successfully at '{}'.",
+                            dest.display()
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Error creating masterkey backup: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::RestoreKey { path, from } => {
+                let path_buf = Path::new(&path);
+                match vault::restore_masterkey_backup(path_buf, from.as_deref().map(Path::new)) {
+                    Ok(_) => {
+                        let source_str = from.unwrap_or_else(|| "masterkey.json.bkup".to_string());
+                        println!(
+                            "Masterkey successfully restored from '{source_str}' to '{path}/masterkey.json'."
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Error restoring masterkey: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 

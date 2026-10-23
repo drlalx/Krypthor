@@ -148,6 +148,20 @@ pub struct RecoveryKeyRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct BackupKeyRequest {
+    pub vault_path: String,
+    #[serde(default)]
+    pub out: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RestoreKeyRequest {
+    pub vault_path: String,
+    #[serde(default)]
+    pub from: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct RecoverVaultRequest {
     pub path: String,
     pub recovery_key: String,
@@ -798,6 +812,38 @@ async fn recover_vault_handler(
     }))
 }
 
+async fn backup_key_handler(
+    Json(payload): Json<BackupKeyRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let vault_dir = Path::new(&payload.vault_path);
+    let out_path = payload.out.as_deref().map(Path::new);
+    let dest = vault::create_masterkey_backup(vault_dir, out_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: format!("Masterkey backup created at '{}'", dest.display()),
+    }))
+}
+
+async fn restore_key_handler(
+    Json(payload): Json<RestoreKeyRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let vault_dir = Path::new(&payload.vault_path);
+    let from_path = payload.from.as_deref().map(Path::new);
+    vault::restore_masterkey_backup(vault_dir, from_path)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: "Masterkey successfully restored from backup".into(),
+    }))
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index_handler))
@@ -823,6 +869,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/delete", post(delete_file_handler))
         .route("/api/vaults/change_password", post(change_password_handler))
         .route("/api/vaults/recovery_key", post(recovery_key_handler))
+        .route("/api/vaults/backup_key", post(backup_key_handler))
+        .route("/api/vaults/restore_key", post(restore_key_handler))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

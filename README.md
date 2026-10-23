@@ -198,6 +198,22 @@ cargo run --release -- import --path "/pfad/zum/tresor" --source "/pfad/zur/quel
 cargo run --release -- verify --path "/pfad/zum/tresor"
 ```
 
+#### Masterkey sichern (backup-key)
+Erstellt eine explizite, zeitgestempelte oder benutzerdefinierte Sicherheitskopie der `masterkey.json`:
+```bash
+cargo run --release -- backup-key --path "/pfad/zum/tresor"
+# Oder mit Zielpfad:
+cargo run --release -- backup-key --path "/pfad/zum/tresor" --out "/backup/tresor_key.json"
+```
+
+#### Masterkey wiederherstellen (restore-key)
+Stellt die `masterkey.json` aus der automatischen `masterkey.json.bkup` oder einer angegebenen Sicherungskopie atomar wieder her:
+```bash
+cargo run --release -- restore-key --path "/pfad/zum/tresor"
+# Oder aus bestimmter Datei:
+cargo run --release -- restore-key --path "/pfad/zum/tresor" --from "/backup/tresor_key.json"
+```
+
 ## Projektstruktur
 
 - [`src/main.rs`](src/main.rs): Einstiegspunkt, CLI-Argument-Parsing (`clap`) und Befehls-Dispatching.

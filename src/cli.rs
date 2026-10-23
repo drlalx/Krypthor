@@ -274,4 +274,22 @@ pub enum Commands {
         #[arg(short, long)]
         keyfile: Option<String>,
     },
+    /// Create an explicit timestamped or custom backup copy of masterkey.json
+    BackupKey {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Optional custom destination path for the backup file
+        #[arg(short, long)]
+        out: Option<String>,
+    },
+    /// Restore masterkey.json from masterkey.json.bkup or a custom backup file
+    RestoreKey {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Optional custom path of the backup file to restore from
+        #[arg(short, long)]
+        from: Option<String>,
+    },
 }
