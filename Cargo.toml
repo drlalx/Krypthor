@@ -10,7 +10,7 @@ description = "Modern, memory-safe Cryptomator vault implementation in Rust with
 default = ["egui-ui", "tui", "web"]
 egui-ui = ["dep:eframe", "dep:egui", "dep:egui-elegance"]
 tui = ["dep:ratatui", "dep:crossterm"]
-web = ["dep:tokio", "dep:axum", "dep:tower", "dep:tower-http", "dep:mime_guess"]
+web = ["dep:tokio", "dep:axum", "dep:tower", "dep:tower-http", "dep:mime_guess", "dep:zip"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -32,6 +32,7 @@ axum = { version = "0.8", features = ["multipart", "tokio", "json"], optional = 
 tower = { version = "0.5", features = ["util"], optional = true }
 tower-http = { version = "0.6", features = ["cors"], optional = true }
 mime_guess = { version = "2.0", optional = true }
+zip = { version = "2.2", default-features = false, features = ["deflate"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 fuser = { version = "0.14", default-features = false }

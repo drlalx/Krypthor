@@ -282,6 +282,47 @@ fn test_cli_vault_workflow() {
     );
     assert!(export_dst.join("documents/legal").is_dir());
 
+    // 17. Rename vault via CLI (rename-vault)
+    let output = Command::new(bin_path)
+        .args([
+            "rename-vault",
+            "--path",
+            &vault_path,
+            "--new-name",
+            "SuperVault",
+        ])
+        .output()
+        .expect("Failed to execute rename-vault command");
+    assert!(output.status.success());
+
+    // 18. List vaults via CLI and verify renamed name
+    let output = Command::new(bin_path)
+        .args(["list"])
+        .output()
+        .expect("Failed to execute list command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("SuperVault"));
+
+    // 19. Remove vault from vaults.json via CLI (remove)
+    let output = Command::new(bin_path)
+        .args(["remove", "--path", &vault_path])
+        .output()
+        .expect("Failed to execute remove command");
+    assert!(output.status.success());
+
+    // 20. Re-register vault via CLI (add)
+    let output = Command::new(bin_path)
+        .args(["add", "--path", &vault_path, "--name", "ReAddedVault"])
+        .output()
+        .expect("Failed to execute add command");
+    assert!(output.status.success());
+
+    // Cleanup vault from vaults.json
+    let _ = Command::new(bin_path)
+        .args(["remove", "--path", &vault_path])
+        .output();
+
     let _ = fs::remove_file(&tmp_src);
     let _ = fs::remove_dir_all(&import_src);
     let _ = fs::remove_dir_all(&export_dst);

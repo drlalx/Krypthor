@@ -14,8 +14,9 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
   - **In-App Text-Editor**: Text- und Markdown-Dateien können direkt im Web-Interface betrachtet und bearbeitet werden.
   - **Live-Dateisuche & Tresorstatistiken**: Sofortige Volltextsuche über alle Ordner hinweg sowie Anzeige von Dateianzahl und belegtem Speicherplatz.
   - **Passwortänderung & Wiederherstellungsschlüssel**: Bequeme Passwortaktualisierung im laufenden Betrieb sowie Export und Entsperrung via 64-stelligem Recovery-Key.
+  - **ZIP-Direktexport**: Entschlüsselter Komplett-Download des Tresors als ZIP-Archiv direkt im Browser oder per REST-API (`/api/vaults/export_zip`).
   - **Auto-Lock**: Automatische Sperrung und sichere Speicherbereinigung entsperrter Tresore nach 30 Minuten Inaktivität.
-  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/stats`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, etc.).
+  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/stats`, `/api/vaults/export_zip`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, etc.).
 - **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal.
 - **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via Pure-Rust FUSE (ohne C `libfuse`-Bindung).
 - **CLI-Befehle**: Vollwertige Steuerung ohne GUI über Subcommands (`list`, `create`, `mount`, `tui`, `serve`).
@@ -92,6 +93,21 @@ Die Anwendung kann auch direkt per Befehlszeile gesteuert werden:
 #### Tresore auflisten
 ```bash
 cargo run --release -- list
+```
+
+#### Bestehenden Tresor registrieren (add)
+```bash
+cargo run --release -- add --path "/pfad/zum/tresor" --name "MeinTresor"
+```
+
+#### Tresor aus Registrierung entfernen (remove)
+```bash
+cargo run --release -- remove --path "/pfad/zum/tresor"
+```
+
+#### Registrierten Tresor umbenennen (rename-vault)
+```bash
+cargo run --release -- rename-vault --path "/pfad/zum/tresor" --new-name "NeuerTresorName"
 ```
 
 #### Neuen Tresor anlegen

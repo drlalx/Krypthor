@@ -118,6 +118,57 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Add { name, path } => {
+                let path_buf = Path::new(&path);
+                if !path_buf.join("masterkey.json").exists() {
+                    eprintln!("Error: Directory '{path}' does not contain masterkey.json");
+                    std::process::exit(1);
+                }
+                let mut vaults = load_saved_vaults();
+                if vaults.iter().any(|v| v.path == path) {
+                    println!("Vault at '{path}' is already registered.");
+                    return;
+                }
+                let vault_name = name.unwrap_or_else(|| {
+                    path_buf
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("vault")
+                        .to_string()
+                });
+                vaults.push(SavedVault {
+                    name: vault_name.clone(),
+                    path: path.clone(),
+                });
+                save_saved_vaults(&vaults);
+                println!("Vault '{vault_name}' successfully registered ({path}).");
+                return;
+            }
+            cli::Commands::Remove { path } => {
+                let mut vaults = load_saved_vaults();
+                let initial_len = vaults.len();
+                vaults.retain(|v| v.path != path);
+                if vaults.len() < initial_len {
+                    save_saved_vaults(&vaults);
+                    println!("Vault '{path}' unregistered successfully.");
+                } else {
+                    println!("Vault '{path}' was not found in registered vaults.");
+                }
+                return;
+            }
+            cli::Commands::RenameVault { path, new_name } => {
+                let mut vaults = load_saved_vaults();
+                if let Some(v) = vaults.iter_mut().find(|v| v.path == path) {
+                    let old_name = v.name.clone();
+                    v.name = new_name.clone();
+                    save_saved_vaults(&vaults);
+                    println!("Vault '{old_name}' renamed to '{new_name}'.");
+                } else {
+                    eprintln!("Error: Vault '{path}' not found in registered vaults.");
+                    std::process::exit(1);
+                }
+                return;
+            }
             cli::Commands::Create {
                 name,
                 path,

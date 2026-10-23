@@ -31,6 +31,30 @@ pub enum Commands {
     },
     /// List all registered vaults
     List,
+    /// Register an existing vault folder in the configuration
+    Add {
+        /// Optional display name (defaults to folder name)
+        #[arg(short, long)]
+        name: Option<String>,
+        /// Path to the existing vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+    },
+    /// Remove a registered vault from the configuration
+    Remove {
+        /// Path of the vault to unregister
+        #[arg(short, long)]
+        path: String,
+    },
+    /// Rename a registered vault's display name
+    RenameVault {
+        /// Path of the vault to rename
+        #[arg(short, long)]
+        path: String,
+        /// New display name
+        #[arg(short, long)]
+        new_name: String,
+    },
     /// Create a new vault
     Create {
         /// Name of the vault

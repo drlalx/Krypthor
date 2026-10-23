@@ -617,6 +617,38 @@ pub fn import_dir(
     walk_and_import(vault_dir, master_key, src_dir, src_dir, dest_prefix)
 }
 
+#[cfg(feature = "web")]
+pub fn export_vault_zip(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<u8>, String> {
+    use std::io::Write;
+    use zip::write::SimpleFileOptions;
+
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip_writer = zip::ZipWriter::new(&mut cursor);
+        let files = list_files(vault_dir, master_key)?;
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+        for rel_path in files {
+            if rel_path.ends_with("/.keep") {
+                let parent = rel_path.trim_end_matches("/.keep");
+                let dir_entry = format!("{parent}/");
+                zip_writer
+                    .add_directory(&dir_entry, SimpleFileOptions::default())
+                    .map_err(|e| e.to_string())?;
+            } else {
+                let content = read_file(vault_dir, master_key, &rel_path)?;
+                zip_writer
+                    .start_file(&rel_path, options)
+                    .map_err(|e| e.to_string())?;
+                zip_writer.write_all(&content).map_err(|e| e.to_string())?;
+            }
+        }
+        zip_writer.finish().map_err(|e| e.to_string())?;
+    }
+    Ok(cursor.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -926,5 +958,44 @@ mod tests {
         let _ = fs::remove_dir_all(&test_dir);
         let _ = fs::remove_dir_all(&src_dir);
         let _ = fs::remove_dir_all(&dest_dir);
+    }
+
+    #[cfg(feature = "web")]
+    #[test]
+    fn test_export_vault_zip() {
+        let test_dir = std::env::temp_dir().join("cryptomator_zip_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "zip_pw", None).unwrap();
+        let key = unlock_vault(&test_dir, "zip_pw", None).unwrap();
+
+        write_file(&test_dir, &key, "readme.txt", b"Hello ZIP").unwrap();
+        create_dir(&test_dir, &key, "docs").unwrap();
+        write_file(&test_dir, &key, "docs/manual.md", b"# Manual").unwrap();
+
+        let zip_bytes = export_vault_zip(&test_dir, &key).unwrap();
+        assert!(!zip_bytes.is_empty());
+
+        // Read back with ZipArchive
+        use std::io::Read;
+        let cursor = std::io::Cursor::new(zip_bytes);
+        let mut archive = zip::ZipArchive::new(cursor).unwrap();
+        assert!(archive.len() >= 2);
+
+        let mut content = Vec::new();
+        {
+            let mut f1 = archive.by_name("readme.txt").unwrap();
+            f1.read_to_end(&mut content).unwrap();
+        }
+        assert_eq!(content, b"Hello ZIP");
+
+        let mut content2 = Vec::new();
+        {
+            let mut f2 = archive.by_name("docs/manual.md").unwrap();
+            f2.read_to_end(&mut content2).unwrap();
+        }
+        assert_eq!(content2, b"# Manual");
+
+        let _ = fs::remove_dir_all(&test_dir);
     }
 }
