@@ -90,6 +90,7 @@ pub struct FilesQuery {
 #[derive(Serialize)]
 pub struct FilesResponse {
     pub files: Vec<String>,
+    pub items: Vec<vault::FileItem>,
 }
 
 #[derive(Deserialize)]
@@ -285,14 +286,15 @@ async fn list_files_handler(
     })?;
 
     let vault_path = Path::new(&query.path);
-    let files = vault::list_files(vault_path, &master_key).map_err(|e| {
+    let items = vault::list_files_with_details(vault_path, &master_key).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
         )
     })?;
 
-    Ok(Json(FilesResponse { files }))
+    let files = items.iter().map(|item| item.path.clone()).collect();
+    Ok(Json(FilesResponse { files, items }))
 }
 
 async fn vault_stats_handler(

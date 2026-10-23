@@ -346,6 +346,14 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+    .file-table th.sortable {
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.15s ease;
+    }
+    .file-table th.sortable:hover {
+      color: var(--text);
+    }
     .file-table td {
       padding: 12px 14px;
       border-bottom: 1px solid var(--border);
@@ -781,7 +789,61 @@
     let selectedVault = null;
     let currentPath = "";
     let rawVaultFiles = [];
+    let fileSizes = {};
     let fileFilterQuery = "";
+    let sortField = "name";
+    let sortAsc = true;
+
+    function toggleSort(field) {
+      if (sortField === field) {
+        sortAsc = !sortAsc;
+      } else {
+        sortField = field;
+        sortAsc = true;
+      }
+      renderFileList(rawVaultFiles);
+    }
+
+    function getFileIcon(name) {
+      const ext = name.split('.').pop().toLowerCase();
+      if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) {
+        return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" style="flex-shrink:0;">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+          <circle cx="8.5" cy="8.5" r="1.5"></circle>
+          <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>`;
+      }
+      if (['pdf'].includes(ext)) {
+        return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" style="flex-shrink:0;">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+          <line x1="9" y1="15" x2="15" y2="15"></line>
+        </svg>`;
+      }
+      if (['zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar'].includes(ext)) {
+        return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" style="flex-shrink:0;">
+          <polyline points="21 8 21 21 3 21 3 8"></polyline>
+          <rect x="1" y="3" width="22" height="5"></rect>
+          <line x1="10" y1="12" x2="14" y2="12"></line>
+        </svg>`;
+      }
+      if (['mp3', 'wav', 'ogg', 'flac', 'm4a', 'mp4', 'mkv', 'avi', 'mov'].includes(ext)) {
+        return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2" style="flex-shrink:0;">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polygon points="10 8 16 12 10 16 10 8"></polygon>
+        </svg>`;
+      }
+      if (['rs', 'js', 'ts', 'py', 'json', 'html', 'css', 'toml', 'yaml', 'yml', 'c', 'cpp', 'sh'].includes(ext)) {
+        return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2" style="flex-shrink:0;">
+          <polyline points="16 18 22 12 16 6"></polyline>
+          <polyline points="8 6 2 12 8 18"></polyline>
+        </svg>`;
+      }
+      return `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="2" style="flex-shrink:0;">
+        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+        <polyline points="13 2 13 9 20 9"></polyline>
+      </svg>`;
+    }
 
     function handleFilterInput(query) {
       fileFilterQuery = query.trim().toLowerCase();
@@ -1060,6 +1122,12 @@
         }
         const data = await res.json();
         rawVaultFiles = data.files || [];
+        fileSizes = {};
+        if (data.items) {
+          for (const item of data.items) {
+            fileSizes[item.path] = item.size;
+          }
+        }
         renderFileList(rawVaultFiles);
         loadVaultStats();
       } catch (err) {
@@ -1071,8 +1139,19 @@
       const content = document.getElementById("mainContent");
       renderBreadcrumbs();
 
+      const sortIconName = sortField === 'name' ? (sortAsc ? ' ▲' : ' ▼') : '';
+      const sortIconSize = sortField === 'size' ? (sortAsc ? ' ▲' : ' ▼') : '';
+
       if (fileFilterQuery) {
-        const filtered = allFiles.filter(f => f.toLowerCase().includes(fileFilterQuery) && !f.endsWith("/.keep"));
+        let filtered = allFiles.filter(f => f.toLowerCase().includes(fileFilterQuery) && !f.endsWith("/.keep"));
+        filtered.sort((a, b) => {
+          if (sortField === "size") {
+            const sizeA = fileSizes[a] || 0;
+            const sizeB = fileSizes[b] || 0;
+            return sortAsc ? sizeA - sizeB : sizeB - sizeA;
+          }
+          return sortAsc ? a.localeCompare(b) : b.localeCompare(a);
+        });
         content.innerHTML = `
           <div class="card" style="padding: 0; overflow: hidden;">
             <div style="padding: 10px 14px; background: rgba(59, 130, 246, 0.1); border-bottom: 1px solid var(--border); font-size: 0.85rem; color: var(--primary);">
@@ -1081,22 +1160,23 @@
             <table class="file-table">
               <thead>
                 <tr>
-                  <th>Pfad</th>
-                  <th style="text-align: right;">Aktionen</th>
+                  <th class="sortable" onclick="toggleSort('name')">Pfad${sortIconName}</th>
+                  <th class="sortable" style="width: 120px;" onclick="toggleSort('size')">Größe${sortIconSize}</th>
+                  <th style="text-align: right; width: 280px;">Aktionen</th>
                 </tr>
               </thead>
               <tbody>
-                ${filtered.length === 0 ? '<tr><td colspan="2" style="text-align: center; color: var(--text-muted); padding: 20px;">Keine Dateien gefunden.</td></tr>' : ''}
+                ${filtered.length === 0 ? '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">Keine Dateien gefunden.</td></tr>' : ''}
                 ${filtered.map(f => `
                   <tr class="file-row" onclick="openFilePreview('${escapeHtml(f)}')">
                     <td>
                       <div class="file-name-cell">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);">
-                          <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
-                          <polyline points="13 2 13 9 20 9"></polyline>
-                        </svg>
+                        ${getFileIcon(f)}
                         <span>${escapeHtml(f)}</span>
                       </div>
+                    </td>
+                    <td style="color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
+                      ${fileSizes[f] !== undefined ? formatBytes(fileSizes[f]) : '—'}
                     </td>
                     <td>
                       <div class="file-actions" onclick="event.stopPropagation()">
@@ -1121,7 +1201,7 @@
 
       for (const f of allFiles) {
         if (f.startsWith(prefix)) {
-          const rest = f.substring(prefix.len ? prefix.length : prefix.length);
+          const rest = f.substring(prefix.length);
           const slashIdx = rest.indexOf("/");
           if (slashIdx !== -1) {
             const folderName = rest.substring(0, slashIdx);
@@ -1133,7 +1213,14 @@
       }
 
       const folderList = Array.from(folders).sort();
-      filesInDir.sort((a, b) => a.name.localeCompare(b.name));
+      filesInDir.sort((a, b) => {
+        if (sortField === "size") {
+          const sizeA = fileSizes[a.fullPath] || 0;
+          const sizeB = fileSizes[b.fullPath] || 0;
+          return sortAsc ? sizeA - sizeB : sizeB - sizeA;
+        }
+        return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+      });
 
       if (folderList.length === 0 && filesInDir.length === 0 && !currentPath) {
         content.innerHTML = `
@@ -1155,7 +1242,7 @@
         const parentPath = lastSlash !== -1 ? currentPath.substring(0, lastSlash) : "";
         parentRow = `
           <tr class="file-row" onclick="navigateTo('${escapeHtml(parentPath)}')">
-            <td colspan="2">
+            <td colspan="3">
               <div class="file-name-cell" style="color: var(--text-muted);">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="15 18 9 12 15 6"></polyline>
@@ -1172,8 +1259,9 @@
           <table class="file-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th style="text-align: right;">Aktionen</th>
+                <th class="sortable" onclick="toggleSort('name')">Name${sortIconName}</th>
+                <th class="sortable" style="width: 120px;" onclick="toggleSort('size')">Größe${sortIconSize}</th>
+                <th style="text-align: right; width: 280px;">Aktionen</th>
               </tr>
             </thead>
             <tbody>
@@ -1184,12 +1272,13 @@
                   <tr class="file-row" onclick="navigateTo('${escapeHtml(targetPath)}')">
                     <td>
                       <div class="file-name-cell" style="color: var(--folder);">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0;">
                           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                         </svg>
                         <span style="font-weight: 600;">${escapeHtml(folder)}</span>
                       </div>
                     </td>
+                    <td style="color: var(--text-muted); font-size: 0.8rem;">—</td>
                     <td>
                       <div class="file-actions" onclick="event.stopPropagation()">
                         <button class="btn btn-secondary btn-sm" onclick="handleRenamePrompt('${escapeHtml(targetPath)}')">
@@ -1208,12 +1297,12 @@
                 <tr class="file-row" onclick="openFilePreview('${escapeHtml(f.fullPath)}')">
                   <td>
                     <div class="file-name-cell">
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--primary);">
-                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
-                        <polyline points="13 2 13 9 20 9"></polyline>
-                      </svg>
+                      ${getFileIcon(f.name)}
                       <span>${escapeHtml(f.name)}</span>
                     </div>
+                  </td>
+                  <td style="color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
+                    ${fileSizes[f.fullPath] !== undefined ? formatBytes(fileSizes[f.fullPath]) : '—'}
                   </td>
                   <td>
                     <div class="file-actions" onclick="event.stopPropagation()">

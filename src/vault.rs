@@ -446,7 +446,16 @@ pub fn rename_dir(
     Ok(())
 }
 
-pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>, String> {
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FileItem {
+    pub path: String,
+    pub size: u64,
+}
+
+pub fn list_files_with_details(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+) -> Result<Vec<FileItem>, String> {
     let d_dir = vault_dir.join("d");
     if !d_dir.exists() {
         return Ok(Vec::new());
@@ -460,16 +469,26 @@ pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>
             let mut file = File::open(&path).map_err(|e| e.to_string())?;
             let mut payload = Vec::new();
             if file.read_to_end(&mut payload).is_ok()
-                && let Ok((rel_path, _)) = decrypt_file_payload(master_key, &payload)
+                && let Ok((rel_path, content)) = decrypt_file_payload(master_key, &payload)
             {
-                files.push(rel_path);
+                files.push(FileItem {
+                    path: rel_path,
+                    size: content.len() as u64,
+                });
             }
         }
     }
 
-    // Sort files alphabetically
-    files.sort();
+    // Sort files alphabetically by path
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
+}
+
+pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>, String> {
+    Ok(list_files_with_details(vault_dir, master_key)?
+        .into_iter()
+        .map(|item| item.path)
+        .collect())
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -757,6 +776,13 @@ mod tests {
         let stats = get_vault_stats(&test_dir, &key).unwrap();
         assert_eq!(stats.total_files, 2);
         assert_eq!(stats.total_size_bytes, 5 + 9);
+
+        let details = list_files_with_details(&test_dir, &key).unwrap();
+        assert_eq!(details.len(), 2);
+        assert_eq!(details[0].path, "file1.txt");
+        assert_eq!(details[0].size, 5);
+        assert_eq!(details[1].path, "sub/file2.txt");
+        assert_eq!(details[1].size, 9);
 
         let _ = fs::remove_dir_all(&test_dir);
     }
