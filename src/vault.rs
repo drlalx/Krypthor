@@ -7,6 +7,9 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static WRITE_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MasterKeyFile {
@@ -207,6 +210,7 @@ pub fn create_vault(
     };
 
     let key_file_path = vault_dir.join("masterkey.json");
+    let key_file_tmp = vault_dir.join("masterkey.json.tmp");
     println!("[DEBUG] create_vault: Serializing masterkey.json content...");
     let key_file_content = serde_json::to_string_pretty(&key_file)
         .map_err(|e| format!("serde_json::to_string_pretty failed: {}", e))?;
@@ -215,17 +219,26 @@ pub fn create_vault(
         "[DEBUG] create_vault: Writing masterkey.json at {:?}",
         key_file_path
     );
-    fs::write(&key_file_path, key_file_content.as_bytes())
-        .map_err(|e| format!("fs::write(masterkey.json) failed: {}", e))?;
+    fs::write(&key_file_tmp, key_file_content.as_bytes())
+        .map_err(|e| format!("fs::write(masterkey.json.tmp) failed: {}", e))?;
+    fs::rename(&key_file_tmp, &key_file_path)
+        .map_err(|e| format!("fs::rename(masterkey.json) failed: {}", e))?;
 
-    // Create an empty vault config
+    // Create initial backup
+    let bkup_path = vault_dir.join("masterkey.json.bkup");
+    let _ = fs::copy(&key_file_path, &bkup_path);
+
+    // Create an empty vault config atomically
     let vault_config_path = vault_dir.join("vault.json");
+    let vault_config_tmp = vault_dir.join("vault.json.tmp");
     println!(
         "[DEBUG] create_vault: Writing vault.json at {:?}",
         vault_config_path
     );
-    fs::write(&vault_config_path, b"{\"version\": 8}")
-        .map_err(|e| format!("fs::write(vault.json) failed: {}", e))?;
+    fs::write(&vault_config_tmp, b"{\"version\": 8}")
+        .map_err(|e| format!("fs::write(vault.json.tmp) failed: {}", e))?;
+    fs::rename(&vault_config_tmp, &vault_config_path)
+        .map_err(|e| format!("fs::rename(vault.json) failed: {}", e))?;
 
     println!("[DEBUG] create_vault: Finished successfully!");
     Ok(())
@@ -269,13 +282,51 @@ pub fn change_vault_password(
     };
 
     let key_file_path = vault_dir.join("masterkey.json");
+    let bkup_path = vault_dir.join("masterkey.json.bkup");
+    if key_file_path.exists() {
+        let _ = fs::copy(&key_file_path, &bkup_path);
+    }
+
+    let key_file_tmp = vault_dir.join("masterkey.json.tmp");
     let key_file_content = serde_json::to_string_pretty(&key_file)
         .map_err(|e| format!("serde_json::to_string_pretty failed: {}", e))?;
 
-    fs::write(&key_file_path, key_file_content.as_bytes())
-        .map_err(|e| format!("fs::write(masterkey.json) failed: {}", e))?;
+    fs::write(&key_file_tmp, key_file_content.as_bytes())
+        .map_err(|e| format!("fs::write(masterkey.json.tmp) failed: {}", e))?;
+    fs::rename(&key_file_tmp, &key_file_path)
+        .map_err(|e| format!("fs::rename(masterkey.json) failed: {}", e))?;
 
     Ok(())
+}
+
+pub fn load_master_key_file(vault_dir: &Path) -> Result<MasterKeyFile, String> {
+    let key_file_path = vault_dir.join("masterkey.json");
+    let bkup_path = vault_dir.join("masterkey.json.bkup");
+
+    let parse_file = |path: &Path| -> Result<MasterKeyFile, String> {
+        let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))
+    };
+
+    if key_file_path.exists() {
+        match parse_file(&key_file_path) {
+            Ok(kf) => Ok(kf),
+            Err(primary_err) => {
+                if bkup_path.exists() {
+                    parse_file(&bkup_path).map_err(|bkup_err| {
+                        format!("Failed to parse masterkey.json ({primary_err}) and masterkey.json.bkup ({bkup_err})")
+                    })
+                } else {
+                    Err(primary_err)
+                }
+            }
+        }
+    } else if bkup_path.exists() {
+        parse_file(&bkup_path)
+    } else {
+        Err("masterkey.json not found".to_string())
+    }
 }
 
 pub fn export_recovery_key(master_key: &[u8; 32]) -> String {
@@ -304,18 +355,7 @@ pub fn unlock_vault(
     password: &str,
     keyfile_path: Option<&Path>,
 ) -> Result<[u8; 32], String> {
-    let key_file_path = vault_dir.join("masterkey.json");
-    if !key_file_path.exists() {
-        return Err("masterkey.json not found".to_string());
-    }
-
-    let mut file = File::open(key_file_path).map_err(|e| e.to_string())?;
-    let mut content = String::new();
-    file.read_to_string(&mut content)
-        .map_err(|e| e.to_string())?;
-
-    let key_file: MasterKeyFile = serde_json::from_str(&content)
-        .map_err(|e| format!("Failed to parse masterkey.json: {}", e))?;
+    let key_file = load_master_key_file(vault_dir)?;
 
     let keyfile_req = key_file.keyfile_required.unwrap_or(false);
     if keyfile_req && keyfile_path.is_none() {
@@ -363,11 +403,17 @@ pub fn write_file(
     content: &[u8],
 ) -> Result<(), String> {
     let phys_name = get_physical_filename(master_key, relative_path);
-    let phys_path = vault_dir.join("d").join(phys_name);
+    let phys_path = vault_dir.join("d").join(&phys_name);
 
     let payload = encrypt_file_payload(master_key, relative_path, content)?;
 
-    fs::write(phys_path, &payload).map_err(|e| e.to_string())?;
+    let count = WRITE_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = vault_dir
+        .join("d")
+        .join(format!("{phys_name}.tmp.{}.{count}", std::process::id()));
+
+    fs::write(&tmp_path, &payload).map_err(|e| e.to_string())?;
+    fs::rename(&tmp_path, &phys_path).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -1127,6 +1173,48 @@ mod tests {
         assert_eq!(report2.corrupted_files.len(), 1);
         assert_eq!(report2.orphaned_files.len(), 1);
         assert!(!report2.is_healthy);
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_masterkey_backup_and_recovery() {
+        let test_dir = std::env::temp_dir().join("cryptomator_masterkey_backup_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        // 1. Create vault
+        create_vault(&test_dir, "bkup_secret", None).unwrap();
+        let primary = test_dir.join("masterkey.json");
+        let backup = test_dir.join("masterkey.json.bkup");
+
+        assert!(primary.exists(), "masterkey.json must exist");
+        assert!(backup.exists(), "masterkey.json.bkup must exist");
+
+        // 2. Write file
+        let key = unlock_vault(&test_dir, "bkup_secret", None).unwrap();
+        write_file(&test_dir, &key, "secrets/doc.txt", b"Safe data").unwrap();
+
+        // 3. Delete primary masterkey.json
+        fs::remove_file(&primary).unwrap();
+        assert!(!primary.exists());
+
+        // 4. Unlock must succeed via backup
+        let key_from_bkup = unlock_vault(&test_dir, "bkup_secret", None).unwrap();
+        assert_eq!(key, key_from_bkup);
+        let content = read_file(&test_dir, &key_from_bkup, "secrets/doc.txt").unwrap();
+        assert_eq!(content, b"Safe data");
+
+        // 5. Corrupt primary masterkey.json with invalid JSON
+        fs::write(&primary, b"{ this is corrupt json").unwrap();
+
+        // 6. Unlock must still succeed by falling back to valid backup
+        let key_recovered = unlock_vault(&test_dir, "bkup_secret", None).unwrap();
+        assert_eq!(key, key_recovered);
+
+        // 7. Change password
+        change_vault_password(&test_dir, "bkup_secret", None, "new_secret_pwd", None).unwrap();
+        let key_new = unlock_vault(&test_dir, "new_secret_pwd", None).unwrap();
+        assert_eq!(key, key_new);
 
         let _ = fs::remove_dir_all(&test_dir);
     }
