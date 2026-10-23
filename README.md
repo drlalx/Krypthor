@@ -88,7 +88,7 @@ cargo run --release -- --serve
 Anschließend im Browser **`http://127.0.0.1:8080`** aufrufen, um Tresore zu verwalten, zu entsperren und Dateien per Drag & Drop zu übertragen.
 
 ### 4. CLI-Befehle
-Die Anwendung kann auch direkt per Befehlszeile gesteuert werden:
+Die Anwendung kann auch direkt per Befehlszeile gesteuert werden. Alle Befehle, die einen Tresor erstellen, entsperren oder ändern, unterstützen optional das `--keyfile <PFAD>` Flag für Zwei-Faktor-Schutz:
 
 #### Tresore auflisten
 ```bash

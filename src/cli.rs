@@ -66,6 +66,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile for two-factor protection
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Unlock and mount a vault using FUSE
     Mount {
@@ -78,6 +81,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Change the password of an existing vault
     ChangePassword {
@@ -90,6 +96,12 @@ pub enum Commands {
         /// New password (if not provided, you will be prompted)
         #[arg(long)]
         new_password: Option<String>,
+        /// Optional path to current keyfile
+        #[arg(long)]
+        old_keyfile: Option<String>,
+        /// Optional path to new keyfile
+        #[arg(long)]
+        new_keyfile: Option<String>,
     },
     /// Export the recovery key of a vault
     RecoveryKey {
@@ -99,6 +111,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Verify or recover a vault using its recovery key
     Recover {
@@ -117,6 +132,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Encrypt and store a file into the vault
     Put {
@@ -132,6 +150,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Decrypt and print the contents of a file in the vault to stdout
     Cat {
@@ -144,6 +165,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Delete a file inside the vault
     Rm {
@@ -156,6 +180,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Rename or move a file or directory inside the vault
     Mv {
@@ -171,6 +198,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Show vault statistics (number of decrypted files and total payload size)
     Stats {
@@ -180,6 +210,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Create a directory inside the vault
     Mkdir {
@@ -192,6 +225,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Export and decrypt the entire vault into a local directory
     Export {
@@ -204,6 +240,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Recursively encrypt and import a local directory into the vault
     Import {
@@ -219,6 +258,9 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
     /// Verify vault integrity and authenticate all encrypted files
     Verify {
@@ -228,5 +270,8 @@ pub enum Commands {
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
 }

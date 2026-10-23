@@ -160,10 +160,8 @@ fn eval_spdx_tokens(tokens: &[Token<'_>]) -> bool {
     }
 
     // Single license identifier
-    if tokens.len() == 1 {
-        if let Token::License(lic) = tokens[0] {
-            return is_license_allowed(lic);
-        }
+    if let [Token::License(lic)] = tokens {
+        return is_license_allowed(lic);
     }
 
     false

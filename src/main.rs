@@ -173,6 +173,7 @@ fn main() {
                 name,
                 path,
                 password,
+                keyfile,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -185,7 +186,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::create_vault(path_buf, &pwd, None) {
+                match vault::create_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(_) => {
                         println!("Vault '{name}' created successfully at '{path}'!");
                         let mut vaults = load_saved_vaults();
@@ -203,6 +204,7 @@ fn main() {
                 path,
                 mountpoint,
                 password,
+                keyfile,
             } => {
                 #[cfg(unix)]
                 {
@@ -217,7 +219,7 @@ fn main() {
                         }
                     };
                     let path_buf = Path::new(&path);
-                    match vault::unlock_vault(path_buf, &pwd, None) {
+                    match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                         Ok(master_key) => {
                             let mount_dir = Path::new(&mountpoint);
                             if let Err(e) = std::fs::create_dir_all(mount_dir) {
@@ -256,7 +258,7 @@ fn main() {
                 }
                 #[cfg(not(unix))]
                 {
-                    let _ = (path, mountpoint, password);
+                    let _ = (path, mountpoint, password, keyfile);
                     eprintln!("FUSE mount is only supported on Unix/Linux platforms.");
                     std::process::exit(1);
                 }
@@ -265,6 +267,8 @@ fn main() {
                 path,
                 old_password,
                 new_password,
+                old_keyfile,
+                new_keyfile,
             } => {
                 let old_pwd = match old_password {
                     Some(p) => p,
@@ -287,7 +291,13 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::change_vault_password(path_buf, &old_pwd, None, &new_pwd, None) {
+                match vault::change_vault_password(
+                    path_buf,
+                    &old_pwd,
+                    old_keyfile.as_deref().map(Path::new),
+                    &new_pwd,
+                    new_keyfile.as_deref().map(Path::new),
+                ) {
                     Ok(_) => {
                         println!("Vault password changed successfully for '{path}'!");
                     }
@@ -298,7 +308,11 @@ fn main() {
                 }
                 return;
             }
-            cli::Commands::RecoveryKey { path, password } => {
+            cli::Commands::RecoveryKey {
+                path,
+                password,
+                keyfile,
+            } => {
                 let pwd = match password {
                     Some(p) => p,
                     None => {
@@ -310,7 +324,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
                         let rec_key = vault::export_recovery_key(&master_key);
                         println!("Vault Recovery Key:");
@@ -359,7 +373,11 @@ fn main() {
                 }
                 return;
             }
-            cli::Commands::Ls { path, password } => {
+            cli::Commands::Ls {
+                path,
+                password,
+                keyfile,
+            } => {
                 let pwd = match password {
                     Some(p) => p,
                     None => {
@@ -371,7 +389,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::list_files(path_buf, &master_key) {
                         Ok(files) => {
                             if files.is_empty() {
@@ -401,6 +419,7 @@ fn main() {
                 source,
                 target,
                 password,
+                keyfile,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -426,7 +445,7 @@ fn main() {
                         .unwrap_or_else(|| "imported_file".to_string())
                 });
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
                         match vault::write_file(path_buf, &master_key, &target_path, &content) {
                             Ok(_) => {
@@ -452,6 +471,7 @@ fn main() {
                 path,
                 file,
                 password,
+                keyfile,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -464,7 +484,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::read_file(path_buf, &master_key, &file) {
                         Ok(content) => {
                             let _ = std::io::stdout().write_all(&content);
@@ -485,6 +505,7 @@ fn main() {
                 path,
                 file,
                 password,
+                keyfile,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -497,7 +518,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::delete_file(path_buf, &master_key, &file) {
                         Ok(_) => {
                             println!("File '{file}' deleted from vault.");
@@ -519,6 +540,7 @@ fn main() {
                 old_path,
                 new_path,
                 password,
+                keyfile,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -531,7 +553,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
                         let files = match vault::list_files(path_buf, &master_key) {
                             Ok(f) => f,
@@ -567,7 +589,11 @@ fn main() {
                 }
                 return;
             }
-            cli::Commands::Stats { path, password } => {
+            cli::Commands::Stats {
+                path,
+                password,
+                keyfile,
+            } => {
                 let pwd = match password {
                     Some(p) => p,
                     None => {
@@ -579,7 +605,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::get_vault_stats(path_buf, &master_key) {
                         Ok(stats) => {
                             println!("Vault Statistics for '{path}':");
@@ -605,6 +631,7 @@ fn main() {
                 path,
                 folder,
                 password,
+                keyfile,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -617,7 +644,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::create_dir(path_buf, &master_key, &folder) {
                         Ok(_) => {
                             println!("Directory '{folder}' created successfully in vault.");
@@ -638,6 +665,7 @@ fn main() {
                 path,
                 dest,
                 password,
+                keyfile,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -651,7 +679,7 @@ fn main() {
                 };
                 let path_buf = Path::new(&path);
                 let dest_buf = Path::new(&dest);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::export_vault(path_buf, &master_key, dest_buf) {
                         Ok(count) => {
                             println!(
@@ -675,6 +703,7 @@ fn main() {
                 source,
                 dest,
                 password,
+                keyfile,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -688,7 +717,7 @@ fn main() {
                 };
                 let path_buf = Path::new(&path);
                 let src_buf = Path::new(&source);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
                         match vault::import_dir(path_buf, &master_key, src_buf, dest.as_deref()) {
                             Ok(count) => {
@@ -709,7 +738,11 @@ fn main() {
                 }
                 return;
             }
-            cli::Commands::Verify { path, password } => {
+            cli::Commands::Verify {
+                path,
+                password,
+                keyfile,
+            } => {
                 let pwd = match password {
                     Some(p) => p,
                     None => {
@@ -721,7 +754,7 @@ fn main() {
                     }
                 };
                 let path_buf = Path::new(&path);
-                match vault::unlock_vault(path_buf, &pwd, None) {
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::verify_vault_integrity(path_buf, &master_key) {
                         Ok(report) => {
                             println!("Vault Integrity Report for '{path}':");

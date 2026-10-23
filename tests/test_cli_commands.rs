@@ -2,9 +2,13 @@
 
 use std::fs;
 use std::process::Command;
+use std::sync::Mutex;
+
+static CLI_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn test_cli_vault_workflow() {
+    let _lock = CLI_TEST_LOCK.lock().unwrap();
     let bin_path = env!("CARGO_BIN_EXE_cryptomator_rs");
     let test_dir = std::env::temp_dir().join("cryptomator_cli_integration_test");
     if test_dir.exists() {
@@ -240,7 +244,7 @@ fn test_cli_vault_workflow() {
             "--path",
             &vault_path,
             "--source",
-            &import_src.to_string_lossy().to_string(),
+            &import_src.to_string_lossy(),
             "--dest",
             "imported",
             "--password",
@@ -262,7 +266,7 @@ fn test_cli_vault_workflow() {
             "--path",
             &vault_path,
             "--dest",
-            &export_dst.to_string_lossy().to_string(),
+            &export_dst.to_string_lossy(),
             "--password",
             "updated_secret",
         ])
@@ -344,5 +348,179 @@ fn test_cli_vault_workflow() {
     let _ = fs::remove_dir_all(&export_dst);
 
     // Cleanup
+    let _ = fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_cli_keyfile_workflow() {
+    let _lock = CLI_TEST_LOCK.lock().unwrap();
+    let bin_path = env!("CARGO_BIN_EXE_cryptomator_rs");
+    let test_dir = std::env::temp_dir().join("cryptomator_cli_keyfile_test");
+    if test_dir.exists() {
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+    fs::create_dir_all(&test_dir).expect("create test_dir");
+
+    let vault_dir = test_dir.join("vault");
+    let vault_path = vault_dir.to_string_lossy().to_string();
+    let keyfile_1 = test_dir.join("keyfile1.bin");
+    let keyfile_2 = test_dir.join("keyfile2.bin");
+
+    fs::write(&keyfile_1, b"first-super-secret-keyfile-content-32b!").expect("write keyfile1");
+    fs::write(&keyfile_2, b"second-super-secret-keyfile-content-32b!").expect("write keyfile2");
+
+    let kf1_path = keyfile_1.to_string_lossy().to_string();
+    let kf2_path = keyfile_2.to_string_lossy().to_string();
+
+    // 1. Create vault with keyfile
+    let output = Command::new(bin_path)
+        .args([
+            "create",
+            "--name",
+            "KeyfileVault",
+            "--path",
+            &vault_path,
+            "--password",
+            "mypassword123",
+            "--keyfile",
+            &kf1_path,
+        ])
+        .output()
+        .expect("create vault with keyfile");
+    assert!(
+        output.status.success(),
+        "Vault creation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // 2. Listing files without keyfile must fail
+    let output = Command::new(bin_path)
+        .args(["ls", "--path", &vault_path, "--password", "mypassword123"])
+        .output()
+        .expect("ls without keyfile");
+    assert!(
+        !output.status.success(),
+        "Unlock without keyfile should have failed!"
+    );
+
+    // 3. Put a file using keyfile
+    let sample_file = test_dir.join("secret_note.txt");
+    fs::write(&sample_file, b"Confidential memo").expect("write sample");
+    let output = Command::new(bin_path)
+        .args([
+            "put",
+            "--path",
+            &vault_path,
+            "--source",
+            &sample_file.to_string_lossy(),
+            "--target",
+            "notes/memo.txt",
+            "--password",
+            "mypassword123",
+            "--keyfile",
+            &kf1_path,
+        ])
+        .output()
+        .expect("put with keyfile");
+    assert!(
+        output.status.success(),
+        "Put failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // 4. Cat the file using keyfile
+    let output = Command::new(bin_path)
+        .args([
+            "cat",
+            "--path",
+            &vault_path,
+            "--file",
+            "notes/memo.txt",
+            "--password",
+            "mypassword123",
+            "--keyfile",
+            &kf1_path,
+        ])
+        .output()
+        .expect("cat with keyfile");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"Confidential memo");
+
+    // 5. Change password and keyfile via CLI
+    let output = Command::new(bin_path)
+        .args([
+            "change-password",
+            "--path",
+            &vault_path,
+            "--old-password",
+            "mypassword123",
+            "--old-keyfile",
+            &kf1_path,
+            "--new-password",
+            "newpassword456",
+            "--new-keyfile",
+            &kf2_path,
+        ])
+        .output()
+        .expect("change password and keyfile");
+    assert!(
+        output.status.success(),
+        "Change password failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // 6. Old keyfile + old password fails
+    let output = Command::new(bin_path)
+        .args([
+            "stats",
+            "--path",
+            &vault_path,
+            "--password",
+            "mypassword123",
+            "--keyfile",
+            &kf1_path,
+        ])
+        .output()
+        .expect("stats with old creds");
+    assert!(!output.status.success());
+
+    // 7. New keyfile + new password succeeds
+    let output = Command::new(bin_path)
+        .args([
+            "stats",
+            "--path",
+            &vault_path,
+            "--password",
+            "newpassword456",
+            "--keyfile",
+            &kf2_path,
+        ])
+        .output()
+        .expect("stats with new creds");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Decrypted Files: 1"));
+
+    // 8. Verify vault integrity with new keyfile
+    let output = Command::new(bin_path)
+        .args([
+            "verify",
+            "--path",
+            &vault_path,
+            "--password",
+            "newpassword456",
+            "--keyfile",
+            &kf2_path,
+        ])
+        .output()
+        .expect("verify with new keyfile");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Status:           HEALTHY"));
+
+    // Cleanup
+    let _ = Command::new(bin_path)
+        .args(["remove", "--path", &vault_path])
+        .output();
     let _ = fs::remove_dir_all(&test_dir);
 }
