@@ -220,4 +220,13 @@ pub enum Commands {
         #[arg(long)]
         password: Option<String>,
     },
+    /// Verify vault integrity and authenticate all encrypted files
+    Verify {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+    },
 }

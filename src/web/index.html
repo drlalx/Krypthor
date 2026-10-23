@@ -603,6 +603,12 @@
           </svg>
           ZIP Export
         </button>
+        <button class="btn btn-secondary btn-sm" onclick="checkVaultIntegrity()" title="Kryptografische Integritätsprüfung aller Dateien">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+          </svg>
+          Integrität prüfen
+        </button>
         <button class="btn btn-danger btn-sm" onclick="lockCurrentVault()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -789,6 +795,22 @@
     </div>
   </div>
 
+  <!-- Integrity Check Modal -->
+  <div class="modal-backdrop" id="integrityModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">Tresor-Integritätsprüfung</div>
+        <button class="modal-close" onclick="closeModal('integrityModal')">&times;</button>
+      </div>
+      <div id="integrityResultBody" style="padding: 10px 0;">
+        Prüfung läuft...
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-primary" onclick="closeModal('integrityModal')">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
@@ -861,6 +883,58 @@
     function downloadVaultZip() {
       if (!selectedVault || !selectedVault.is_unlocked) return;
       window.location.href = `/api/vaults/export_zip?path=${encodeURIComponent(selectedVault.path)}`;
+    }
+
+    async function checkVaultIntegrity() {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      openModal("integrityModal");
+      const box = document.getElementById("integrityResultBody");
+      box.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 15px;">🔍 Prüfe kryptografische Signaturen aller Dateien...</div>`;
+
+      try {
+        const res = await fetch(`/api/vaults/verify?path=${encodeURIComponent(selectedVault.path)}`);
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Prüfung fehlgeschlagen");
+        }
+        const report = await res.json();
+        if (report.is_healthy) {
+          box.innerHTML = `
+            <div style="text-align: center; padding: 15px;">
+              <div style="font-size: 2.2rem; margin-bottom: 8px;">🛡️</div>
+              <h3 style="color: var(--success); margin-bottom: 6px;">Tresor ist vollständig intakt</h3>
+              <p style="font-size: 0.85rem; color: var(--text-muted);">
+                Alle <strong>${report.total_checked}</strong> verschlüsselten Dateien wurden erfolgreich über ihren AES-256-GCM Auth-Tag verifiziert. Keine Beschädigungen oder verwaisten Fragmente gefunden.
+              </p>
+            </div>
+          `;
+        } else {
+          box.innerHTML = `
+            <div style="padding: 10px;">
+              <h3 style="color: var(--danger); margin-bottom: 8px;">⚠️ Integritätsprobleme festgestellt</h3>
+              <p style="font-size: 0.85rem; margin-bottom: 10px;">
+                Geprüft: ${report.total_checked} Datei(en) • Gültig: ${report.valid_files}
+              </p>
+              ${report.corrupted_files.length > 0 ? `
+                <div style="margin-top: 10px; color: var(--danger); font-size: 0.85rem;">
+                  <strong>Beschädigte Dateien (${report.corrupted_files.length}):</strong>
+                  <ul style="margin-top: 4px; padding-left: 20px; font-family: monospace; font-size: 0.8rem;">
+                    ${report.corrupted_files.map(c => `<li>${escapeHtml(c)}</li>`).join("")}
+                  </ul>
+                </div>` : ''}
+              ${report.orphaned_files.length > 0 ? `
+                <div style="margin-top: 10px; color: #f59e0b; font-size: 0.85rem;">
+                  <strong>Verwaiste Dateien (${report.orphaned_files.length}):</strong>
+                  <ul style="margin-top: 4px; padding-left: 20px; font-family: monospace; font-size: 0.8rem;">
+                    ${report.orphaned_files.map(o => `<li>${escapeHtml(o)}</li>`).join("")}
+                  </ul>
+                </div>` : ''}
+            </div>
+          `;
+        }
+      } catch (err) {
+        box.innerHTML = `<div style="color: var(--danger); padding: 10px;">Fehler bei der Prüfung: ${escapeHtml(err.message)}</div>`;
+      }
     }
 
     async function loadVaultStats() {

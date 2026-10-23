@@ -318,6 +318,22 @@ fn test_cli_vault_workflow() {
         .expect("Failed to execute add command");
     assert!(output.status.success());
 
+    // 21. Verify vault integrity via CLI (verify)
+    let output = Command::new(bin_path)
+        .args([
+            "verify",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute verify command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Status:           HEALTHY"));
+    assert!(stdout.contains("Valid Files:      3"));
+
     // Cleanup vault from vaults.json
     let _ = Command::new(bin_path)
         .args(["remove", "--path", &vault_path])

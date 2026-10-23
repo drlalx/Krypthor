@@ -709,6 +709,59 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Verify { path, password } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, None) {
+                    Ok(master_key) => match vault::verify_vault_integrity(path_buf, &master_key) {
+                        Ok(report) => {
+                            println!("Vault Integrity Report for '{path}':");
+                            if report.is_healthy {
+                                println!(
+                                    "  Status:           HEALTHY (All integrity checks passed)"
+                                );
+                            } else {
+                                println!("  Status:           CORRUPTED (Integrity issues found!)");
+                            }
+                            println!("  Files Checked:    {}", report.total_checked);
+                            println!("  Valid Files:      {}", report.valid_files);
+                            if !report.corrupted_files.is_empty() {
+                                println!("  Corrupted Files ({}):", report.corrupted_files.len());
+                                for c in &report.corrupted_files {
+                                    println!("    - {c}");
+                                }
+                            }
+                            if !report.orphaned_files.is_empty() {
+                                println!("  Orphaned Files ({}):", report.orphaned_files.len());
+                                for o in &report.orphaned_files {
+                                    println!("    - {o}");
+                                }
+                            }
+                            if !report.is_healthy {
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error verifying vault: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 

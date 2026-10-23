@@ -321,6 +321,30 @@ async fn vault_stats_handler(
     Ok(Json(stats))
 }
 
+async fn verify_vault_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<FilesQuery>,
+) -> Result<Json<vault::IntegrityReport>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked or session expired".into(),
+            }),
+        )
+    })?;
+
+    let vault_path = Path::new(&query.path);
+    let report = vault::verify_vault_integrity(vault_path, &master_key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(report))
+}
+
 async fn download_file_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DownloadQuery>,
@@ -780,6 +804,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/rename_vault", post(rename_vault_handler))
         .route("/api/vaults/files", get(list_files_handler))
         .route("/api/vaults/stats", get(vault_stats_handler))
+        .route("/api/vaults/verify", get(verify_vault_handler))
         .route("/api/vaults/download", get(download_file_handler))
         .route("/api/vaults/export_zip", get(export_zip_handler))
         .route("/api/vaults/preview", get(preview_file_handler))
@@ -1228,6 +1253,29 @@ mod tests {
             .await
             .unwrap();
         assert!(!zip_bytes.is_empty());
+
+        // 11. Verify vault integrity via API
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/vaults/verify?path={}",
+                        temp_dir.to_string_lossy()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let verify_body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let report: vault::IntegrityReport = serde_json::from_slice(&verify_body).unwrap();
+        assert!(report.is_healthy);
+        assert_eq!(report.corrupted_files.len(), 0);
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);

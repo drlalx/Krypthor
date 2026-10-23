@@ -191,6 +191,12 @@ cargo run --release -- export --path "/pfad/zum/tresor" --dest "/pfad/zum/zielor
 cargo run --release -- import --path "/pfad/zum/tresor" --source "/pfad/zur/quelle" --dest "backup"
 ```
 
+#### Kryptografische Tresor-Integritätsprüfung (verify)
+Überprüft sämtliche verschlüsselte Dateien im Tresor anhand ihrer AES-256-GCM Authentifizierungs-Tags auf Bitfehler, Manipulation oder verwaiste Dateien:
+```bash
+cargo run --release -- verify --path "/pfad/zum/tresor"
+```
+
 ## Projektstruktur
 
 - [`src/main.rs`](src/main.rs): Einstiegspunkt, CLI-Argument-Parsing (`clap`) und Befehls-Dispatching.

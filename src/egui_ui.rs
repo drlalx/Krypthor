@@ -1460,7 +1460,7 @@ impl CryptomatorApp {
         });
     }
 
-    fn render_stats_tab(&mut self, ui: &mut egui::Ui, _vault_path: &Path) {
+    fn render_stats_tab(&mut self, ui: &mut egui::Ui, vault_path: &Path) {
         let total_size: u64 = self.vault_files.iter().map(|f| f.size).sum();
         let non_keep_count = self
             .vault_files
@@ -1494,6 +1494,46 @@ impl CryptomatorApp {
                         "Inactive"
                     };
                     ui.label(format!("• FUSE Mount Status: {fuse_str}"));
+                }
+            });
+
+        ui.add_space(12.0);
+        Card::new()
+            .heading("Cryptographic Integrity Verification")
+            .show(ui, |ui| {
+                ui.label(
+                    "Verify all encrypted files against their stored AES-256-GCM authentication tags.",
+                );
+                ui.add_space(6.0);
+                if let Some(master_key) = self.unlocked_vaults.get(vault_path)
+                    && ui.button("🛡️ Verify Vault Integrity Now").clicked()
+                {
+                    match vault::verify_vault_integrity(vault_path, master_key) {
+                            Ok(report) => {
+                                if report.is_healthy {
+                                    self.status_message = Some((
+                                        format!(
+                                            "Integrity check passed! All {} files are valid and healthy.",
+                                            report.total_checked
+                                        ),
+                                        false,
+                                    ));
+                                } else {
+                                    self.status_message = Some((
+                                        format!(
+                                            "Integrity issues found: {} corrupted, {} orphaned files.",
+                                            report.corrupted_files.len(),
+                                            report.orphaned_files.len()
+                                        ),
+                                        true,
+                                    ));
+                                }
+                            }
+                            Err(e) => {
+                                self.status_message =
+                                    Some((format!("Verification failed: {e}"), true));
+                            }
+                        }
                 }
             });
 

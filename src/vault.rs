@@ -530,6 +530,94 @@ pub fn get_vault_stats(vault_dir: &Path, master_key: &[u8; 32]) -> Result<VaultS
     })
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct IntegrityReport {
+    pub total_checked: usize,
+    pub valid_files: usize,
+    pub corrupted_files: Vec<String>,
+    pub orphaned_files: Vec<String>,
+    pub is_healthy: bool,
+}
+
+pub fn verify_vault_integrity(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+) -> Result<IntegrityReport, String> {
+    let d_dir = vault_dir.join("d");
+    if !d_dir.exists() {
+        return Ok(IntegrityReport {
+            total_checked: 0,
+            valid_files: 0,
+            corrupted_files: Vec::new(),
+            orphaned_files: Vec::new(),
+            is_healthy: true,
+        });
+    }
+
+    let mut total_checked = 0;
+    let mut valid_files = 0;
+    let mut corrupted_files = Vec::new();
+    let mut orphaned_files = Vec::new();
+
+    for entry in fs::read_dir(d_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_file() {
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            if !file_name.ends_with(".c9r") {
+                orphaned_files.push(file_name);
+                continue;
+            }
+
+            total_checked += 1;
+            let mut file = match File::open(&path) {
+                Ok(f) => f,
+                Err(e) => {
+                    corrupted_files.push(format!("{file_name}: Failed to open ({e})"));
+                    continue;
+                }
+            };
+
+            let mut payload = Vec::new();
+            if let Err(e) = file.read_to_end(&mut payload) {
+                corrupted_files.push(format!("{file_name}: Read error ({e})"));
+                continue;
+            }
+
+            match decrypt_file_payload(master_key, &payload) {
+                Ok((rel_path, _)) => {
+                    let expected_name = get_physical_filename(master_key, &rel_path);
+                    if expected_name != file_name {
+                        corrupted_files.push(format!(
+                            "{file_name}: Name mismatch (expected {expected_name} for '{rel_path}')"
+                        ));
+                    } else {
+                        valid_files += 1;
+                    }
+                }
+                Err(e) => {
+                    corrupted_files.push(format!("{file_name}: Integrity/Decryption failed ({e})"));
+                }
+            }
+        }
+    }
+
+    let is_healthy = corrupted_files.is_empty() && orphaned_files.is_empty();
+
+    Ok(IntegrityReport {
+        total_checked,
+        valid_files,
+        corrupted_files,
+        orphaned_files,
+        is_healthy,
+    })
+}
+
 pub fn create_dir(
     vault_dir: &Path,
     master_key: &[u8; 32],
@@ -995,6 +1083,50 @@ mod tests {
             f2.read_to_end(&mut content2).unwrap();
         }
         assert_eq!(content2, b"# Manual");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_verify_vault_integrity() {
+        let test_dir = std::env::temp_dir().join("cryptomator_integrity_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "verify_pw", None).unwrap();
+        let key = unlock_vault(&test_dir, "verify_pw", None).unwrap();
+
+        write_file(&test_dir, &key, "valid1.txt", b"Healthy Content 1").unwrap();
+        write_file(&test_dir, &key, "valid2.txt", b"Healthy Content 2").unwrap();
+
+        // 1. Clean vault check
+        let report = verify_vault_integrity(&test_dir, &key).unwrap();
+        assert_eq!(report.total_checked, 2);
+        assert_eq!(report.valid_files, 2);
+        assert!(report.corrupted_files.is_empty());
+        assert!(report.orphaned_files.is_empty());
+        assert!(report.is_healthy);
+
+        // 2. Corrupt one file's content
+        let d_dir = test_dir.join("d");
+        let phys_name = get_physical_filename(&key, "valid1.txt");
+        let file_path = d_dir.join(&phys_name);
+        let mut corrupted_bytes = fs::read(&file_path).unwrap();
+        // Flip a byte in ciphertext/tag
+        if let Some(b) = corrupted_bytes.last_mut() {
+            *b ^= 0xFF;
+        }
+        fs::write(&file_path, &corrupted_bytes).unwrap();
+
+        // 3. Add an orphaned non-c9r file
+        fs::write(d_dir.join("random_file.tmp"), b"junk").unwrap();
+
+        // 4. Verify again - should detect corruption and orphaned file
+        let report2 = verify_vault_integrity(&test_dir, &key).unwrap();
+        assert_eq!(report2.total_checked, 2);
+        assert_eq!(report2.valid_files, 1);
+        assert_eq!(report2.corrupted_files.len(), 1);
+        assert_eq!(report2.orphaned_files.len(), 1);
+        assert!(!report2.is_healthy);
 
         let _ = fs::remove_dir_all(&test_dir);
     }
