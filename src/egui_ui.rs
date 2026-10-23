@@ -83,6 +83,8 @@ struct CryptomatorApp {
     change_pw_old: String,
     change_pw_new: String,
     change_pw_confirm: String,
+    change_pw_old_keyfile: Option<PathBuf>,
+    change_pw_new_keyfile: Option<PathBuf>,
 
     show_recovery_key_modal_open: bool,
     displayed_recovery_key: String,
@@ -169,6 +171,8 @@ impl CryptomatorApp {
             change_pw_old: String::new(),
             change_pw_new: String::new(),
             change_pw_confirm: String::new(),
+            change_pw_old_keyfile: None,
+            change_pw_new_keyfile: None,
 
             show_recovery_key_modal_open: false,
             displayed_recovery_key: String::new(),
@@ -802,6 +806,9 @@ impl CryptomatorApp {
                 {
                     self.unlock_keyfile_path = Some(file);
                 }
+                if self.unlock_keyfile_path.is_some() && ui.button("Clear").clicked() {
+                    self.unlock_keyfile_path = None;
+                }
             });
 
             ui.add_space(12.0);
@@ -1254,10 +1261,43 @@ impl CryptomatorApp {
             Card::new().heading("Change Vault Password").show(ui, |ui| {
                 ui.label("Current Password:");
                 ui.add(egui::TextEdit::singleline(&mut self.change_pw_old).password(true));
+
+                ui.horizontal(|ui| {
+                    let old_kf_str = match &self.change_pw_old_keyfile {
+                        Some(p) => p.to_string_lossy().to_string(),
+                        None => "No current keyfile (optional)".to_string(),
+                    };
+                    ui.label(RichText::new(old_kf_str).size(12.0).italics());
+                    if ui.button("Select Current Keyfile...").clicked()
+                        && let Some(file) = rfd::FileDialog::new().pick_file()
+                    {
+                        self.change_pw_old_keyfile = Some(file);
+                    }
+                    if self.change_pw_old_keyfile.is_some() && ui.button("Clear").clicked() {
+                        self.change_pw_old_keyfile = None;
+                    }
+                });
+
                 ui.label("New Password:");
                 ui.add(egui::TextEdit::singleline(&mut self.change_pw_new).password(true));
                 ui.label("Confirm New Password:");
                 ui.add(egui::TextEdit::singleline(&mut self.change_pw_confirm).password(true));
+
+                ui.horizontal(|ui| {
+                    let new_kf_str = match &self.change_pw_new_keyfile {
+                        Some(p) => p.to_string_lossy().to_string(),
+                        None => "No new keyfile (optional)".to_string(),
+                    };
+                    ui.label(RichText::new(new_kf_str).size(12.0).italics());
+                    if ui.button("Select New Keyfile...").clicked()
+                        && let Some(file) = rfd::FileDialog::new().pick_file()
+                    {
+                        self.change_pw_new_keyfile = Some(file);
+                    }
+                    if self.change_pw_new_keyfile.is_some() && ui.button("Clear").clicked() {
+                        self.change_pw_new_keyfile = None;
+                    }
+                });
 
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -1275,15 +1315,17 @@ impl CryptomatorApp {
                             match vault::change_vault_password(
                                 vault_path,
                                 &self.change_pw_old,
-                                None,
+                                self.change_pw_old_keyfile.as_deref(),
                                 &self.change_pw_new,
-                                None,
+                                self.change_pw_new_keyfile.as_deref(),
                             ) {
                                 Ok(_) => {
                                     self.change_pw_modal_open = false;
                                     self.change_pw_old.clear();
                                     self.change_pw_new.clear();
                                     self.change_pw_confirm.clear();
+                                    self.change_pw_old_keyfile = None;
+                                    self.change_pw_new_keyfile = None;
                                     self.status_message =
                                         Some(("Password updated successfully!".to_string(), false));
                                 }
@@ -1296,6 +1338,8 @@ impl CryptomatorApp {
                     }
                     if ui.button("Cancel").clicked() {
                         self.change_pw_modal_open = false;
+                        self.change_pw_old_keyfile = None;
+                        self.change_pw_new_keyfile = None;
                     }
                 });
             });

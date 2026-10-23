@@ -658,6 +658,10 @@
         <label class="form-label">Passwort für neuen Tresor</label>
         <input type="password" id="vaultNewPasswordInput" class="form-input" placeholder="Mindestens 8 Zeichen">
       </div>
+      <div class="form-group" id="vaultKeyfileGroup">
+        <label class="form-label">Schlüsseldatei für 2FA (optional)</label>
+        <input type="text" id="vaultNewKeyfileInput" class="form-input" placeholder="/pfad/zur/schluesseldatei.key">
+      </div>
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
         <button class="btn btn-secondary" onclick="closeModal('addVaultModal')">Abbrechen</button>
         <button class="btn btn-primary" onclick="handleAddVault()">Hinzufügen</button>
@@ -740,12 +744,20 @@
         <input type="password" id="oldPasswordInput" class="form-input" placeholder="Bisheriges Passwort">
       </div>
       <div class="form-group">
+        <label class="form-label">Aktuelle Schlüsseldatei (optional)</label>
+        <input type="text" id="oldKeyfileInput" class="form-input" placeholder="/pfad/zur/bisherigen/datei.key">
+      </div>
+      <div class="form-group">
         <label class="form-label">Neues Passwort</label>
         <input type="password" id="newPasswordInput" class="form-input" placeholder="Mindestens 8 Zeichen">
       </div>
       <div class="form-group">
         <label class="form-label">Neues Passwort bestätigen</label>
         <input type="password" id="newPasswordConfirmInput" class="form-input" placeholder="Passwort wiederholen">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Neue Schlüsseldatei (optional)</label>
+        <input type="text" id="newKeyfileInput" class="form-input" placeholder="/pfad/zur/neuen/datei.key">
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
         <button class="btn btn-secondary" onclick="closeModal('changePasswordModal')">Abbrechen</button>
@@ -1091,6 +1103,9 @@
               <div class="form-group">
                 <input type="password" id="unlockPassword" class="form-input" placeholder="Tresor-Passwort" required autofocus>
               </div>
+              <div class="form-group" style="margin-top: 10px;">
+                <input type="text" id="unlockKeyfile" class="form-input" placeholder="Schlüsseldatei-Pfad (optional)">
+              </div>
               <button type="submit" class="btn btn-primary" style="width: 100%;">Tresor entsperren</button>
             </form>
             <div style="margin-top: 14px; text-align: center;">
@@ -1110,6 +1125,8 @@
       e.preventDefault();
       const pwInput = document.getElementById("unlockPassword");
       const password = pwInput.value;
+      const kfInput = document.getElementById("unlockKeyfile");
+      const keyfile = kfInput && kfInput.value.trim() ? kfInput.value.trim() : null;
 
       try {
         const res = await fetch("/api/vaults/unlock", {
@@ -1117,7 +1134,8 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             path: selectedVault.path,
-            password: password
+            password: password,
+            keyfile: keyfile
           })
         });
 
@@ -1533,11 +1551,13 @@
     async function handleChangePassword() {
       if (!selectedVault) return;
       const oldPassword = document.getElementById("oldPasswordInput").value;
+      const oldKeyfile = document.getElementById("oldKeyfileInput").value.trim();
       const newPassword = document.getElementById("newPasswordInput").value;
       const confirmPassword = document.getElementById("newPasswordConfirmInput").value;
+      const newKeyfile = document.getElementById("newKeyfileInput").value.trim();
 
       if (!oldPassword || !newPassword) {
-        showToast("Bitte alle Felder ausfüllen", "error");
+        showToast("Bitte alle erforderlichen Felder ausfüllen", "error");
         return;
       }
       if (newPassword !== confirmPassword) {
@@ -1552,7 +1572,9 @@
           body: JSON.stringify({
             vault_path: selectedVault.path,
             old_password: oldPassword,
-            new_password: newPassword
+            new_password: newPassword,
+            old_keyfile: oldKeyfile || null,
+            new_keyfile: newKeyfile || null
           })
         });
 
@@ -1560,8 +1582,10 @@
           showToast("Passwort erfolgreich geändert! Bitte neu entsperren.", "success");
           closeModal("changePasswordModal");
           document.getElementById("oldPasswordInput").value = "";
+          document.getElementById("oldKeyfileInput").value = "";
           document.getElementById("newPasswordInput").value = "";
           document.getElementById("newPasswordConfirmInput").value = "";
+          document.getElementById("newKeyfileInput").value = "";
           await loadVaults();
         } else {
           const err = await res.json();
@@ -1770,7 +1794,9 @@
     function toggleVaultCreateFields() {
       const action = document.getElementById("vaultActionSelect").value;
       const pwGroup = document.getElementById("vaultPasswordGroup");
-      pwGroup.style.display = action === "create" ? "block" : "none";
+      const kfGroup = document.getElementById("vaultKeyfileGroup");
+      if (pwGroup) pwGroup.style.display = action === "create" ? "block" : "none";
+      if (kfGroup) kfGroup.style.display = action === "create" ? "block" : "none";
     }
 
     async function handleAddVault() {
@@ -1778,6 +1804,8 @@
       const path = document.getElementById("vaultPathInput").value.trim();
       const action = document.getElementById("vaultActionSelect").value;
       const password = document.getElementById("vaultNewPasswordInput").value;
+      const kfInput = document.getElementById("vaultNewKeyfileInput");
+      const keyfile = kfInput ? kfInput.value.trim() : "";
 
       if (!name || !path) {
         showToast("Bitte Name und Pfad ausfüllen", "error");
@@ -1796,7 +1824,8 @@
             name,
             path,
             password: action === "create" ? password : null,
-            create_new: action === "create"
+            create_new: action === "create",
+            keyfile: action === "create" && keyfile ? keyfile : null
           })
         });
         if (res.ok) {

@@ -68,6 +68,8 @@ pub struct AddVaultRequest {
     pub path: String,
     pub password: Option<String>,
     pub create_new: bool,
+    #[serde(default)]
+    pub keyfile: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -134,6 +136,10 @@ pub struct ChangePasswordRequest {
     pub vault_path: String,
     pub old_password: String,
     pub new_password: String,
+    #[serde(default)]
+    pub old_keyfile: Option<String>,
+    #[serde(default)]
+    pub new_keyfile: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -205,7 +211,8 @@ async fn create_or_register_vault_handler(
                 }),
             ));
         }
-        vault::create_vault(&vault_path, password, None).map_err(|e| {
+        let keyfile_path = payload.keyfile.as_deref().map(Path::new);
+        vault::create_vault(&vault_path, password, keyfile_path).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse { error: e }),
@@ -718,12 +725,14 @@ async fn change_password_handler(
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
     let vault_dir = Path::new(&payload.vault_path);
+    let old_keyfile_path = payload.old_keyfile.as_deref().map(Path::new);
+    let new_keyfile_path = payload.new_keyfile.as_deref().map(Path::new);
     vault::change_vault_password(
         vault_dir,
         &payload.old_password,
-        None,
+        old_keyfile_path,
         &payload.new_password,
-        None,
+        new_keyfile_path,
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
 
@@ -911,6 +920,7 @@ mod tests {
             path: temp_dir.to_string_lossy().to_string(),
             password: Some("webpassword123".to_string()),
             create_new: true,
+            keyfile: None,
         };
         let res = router
             .clone()
@@ -1056,6 +1066,7 @@ mod tests {
             path: temp_dir.to_string_lossy().to_string(),
             password: Some("first_password".to_string()),
             create_new: true,
+            keyfile: None,
         };
         let res = router
             .clone()
@@ -1120,6 +1131,8 @@ mod tests {
             vault_path: temp_dir.to_string_lossy().to_string(),
             old_password: "first_password".to_string(),
             new_password: "second_password".to_string(),
+            old_keyfile: None,
+            new_keyfile: None,
         };
         let res = router
             .clone()
@@ -1276,6 +1289,137 @@ mod tests {
         let report: vault::IntegrityReport = serde_json::from_slice(&verify_body).unwrap();
         assert!(report.is_healthy);
         assert_eq!(report.corrupted_files.len(), 0);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        save_saved_vaults(&original_saved);
+    }
+
+    #[tokio::test]
+    async fn test_web_api_keyfile_lifecycle() {
+        let _guard = TEST_LOCK.lock().await;
+        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_kf_lifecycle");
+        if temp_dir.exists() {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+        }
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let original_saved = load_saved_vaults();
+
+        let vault_dir = temp_dir.join("vault");
+        let kf1 = temp_dir.join("kf1.key");
+        let kf2 = temp_dir.join("kf2.key");
+        std::fs::write(&kf1, b"keyfile-secret-web-one-32-bytes!").unwrap();
+        std::fs::write(&kf2, b"keyfile-secret-web-two-32-bytes!").unwrap();
+
+        let kf1_str = kf1.to_string_lossy().to_string();
+        let kf2_str = kf2.to_string_lossy().to_string();
+
+        let state = Arc::new(AppState::default());
+        let router = build_router(state);
+
+        // 1. Create vault with keyfile via API
+        let create_req = AddVaultRequest {
+            name: "KfWebVault".to_string(),
+            path: vault_dir.to_string_lossy().to_string(),
+            password: Some("webkeypass1".to_string()),
+            create_new: true,
+            keyfile: Some(kf1_str.clone()),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&create_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 2. Unlock with password only (no keyfile) must fail
+        let unlock_fail_req = UnlockVaultRequest {
+            path: vault_dir.to_string_lossy().to_string(),
+            password: "webkeypass1".to_string(),
+            keyfile: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_fail_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+        // 3. Unlock with password and keyfile succeeds
+        let unlock_ok_req = UnlockVaultRequest {
+            path: vault_dir.to_string_lossy().to_string(),
+            password: "webkeypass1".to_string(),
+            keyfile: Some(kf1_str.clone()),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_ok_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 4. Change password and keyfile via API
+        let chg_req = ChangePasswordRequest {
+            vault_path: vault_dir.to_string_lossy().to_string(),
+            old_password: "webkeypass1".to_string(),
+            new_password: "webkeypass2".to_string(),
+            old_keyfile: Some(kf1_str.clone()),
+            new_keyfile: Some(kf2_str.clone()),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/change_password")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&chg_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 5. Unlock with new credentials succeeds
+        let unlock_new_req = UnlockVaultRequest {
+            path: vault_dir.to_string_lossy().to_string(),
+            password: "webkeypass2".to_string(),
+            keyfile: Some(kf2_str.clone()),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_new_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
