@@ -616,6 +616,7 @@ fn main() {
             cli::Commands::Rm {
                 path,
                 file,
+                recursive,
                 password,
                 keyfile,
             } => {
@@ -631,15 +632,29 @@ fn main() {
                 };
                 let path_buf = Path::new(&path);
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
-                    Ok(master_key) => match vault::delete_file(path_buf, &master_key, &file) {
-                        Ok(_) => {
-                            println!("File '{file}' deleted from vault.");
+                    Ok(master_key) => {
+                        if recursive {
+                            match vault::delete_dir(path_buf, &master_key, &file) {
+                                Ok(count) => {
+                                    println!("Removed {count} item(s) in '{file}'.");
+                                }
+                                Err(e) => {
+                                    eprintln!("Error deleting directory '{file}': {e}");
+                                    std::process::exit(1);
+                                }
+                            }
+                        } else {
+                            match vault::delete_file(path_buf, &master_key, &file) {
+                                Ok(_) => {
+                                    println!("File '{file}' deleted from vault.");
+                                }
+                                Err(e) => {
+                                    eprintln!("Error deleting file: {e}");
+                                    std::process::exit(1);
+                                }
+                            }
                         }
-                        Err(e) => {
-                            eprintln!("Error deleting file: {e}");
-                            std::process::exit(1);
-                        }
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Unlock failed: {e}");
                         std::process::exit(1);

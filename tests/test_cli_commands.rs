@@ -386,6 +386,24 @@ fn test_cli_vault_workflow() {
     );
     assert!(export_dst.join("documents/legal").is_dir());
 
+    // 16b. Delete directory recursively via CLI (rm -r)
+    let output = Command::new(bin_path)
+        .args([
+            "rm",
+            "--path",
+            &vault_path,
+            "--file",
+            "imported",
+            "-r",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute rm -r command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Removed 2 item(s) in 'imported'."));
+
     // 17. Rename vault via CLI (rename-vault)
     let output = Command::new(bin_path)
         .args([
@@ -445,7 +463,7 @@ fn test_cli_vault_workflow() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Status:           HEALTHY"));
-    assert!(stdout.contains("Valid Files:      3"));
+    assert!(stdout.contains("Valid Files:      1"));
 
     // 21b. Verify vault integrity in JSON format
     let output = Command::new(bin_path)

@@ -629,6 +629,28 @@ pub fn rename_dir(
     Ok(())
 }
 
+pub fn delete_dir(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    dir_prefix: &str,
+) -> Result<usize, String> {
+    let p = dir_prefix.trim().trim_matches('/');
+    if p.is_empty() {
+        return Err("Cannot delete root directory".to_string());
+    }
+    let files = list_files(vault_dir, master_key)?;
+    let p_with_slash = format!("{p}/");
+    let mut deleted_count = 0;
+
+    for file in files {
+        if file.starts_with(&p_with_slash) || file == p {
+            delete_file(vault_dir, master_key, &file)?;
+            deleted_count += 1;
+        }
+    }
+    Ok(deleted_count)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct FileItem {
     pub path: String,
@@ -1484,5 +1506,30 @@ mod tests {
         assert_eq!(password_strength_score("secretpassword123").1, "Medium");
         assert_eq!(password_strength_score("SecretPass123!").1, "Strong");
         assert_eq!(password_strength_score(&pw32).1, "Excellent");
+    }
+
+    #[test]
+    fn test_delete_dir() {
+        let test_dir = std::env::temp_dir().join("cryptomator_delete_dir_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "deldir_pw", None).unwrap();
+        let key = unlock_vault(&test_dir, "deldir_pw", None).unwrap();
+
+        write_file(&test_dir, &key, "proj/a.txt", b"A").unwrap();
+        write_file(&test_dir, &key, "proj/sub/b.txt", b"B").unwrap();
+        write_file(&test_dir, &key, "other.txt", b"Other").unwrap();
+
+        let files = list_files(&test_dir, &key).unwrap();
+        assert_eq!(files.len(), 3);
+
+        let count = delete_dir(&test_dir, &key, "proj").unwrap();
+        assert_eq!(count, 2);
+
+        let files_after = list_files(&test_dir, &key).unwrap();
+        assert_eq!(files_after.len(), 1);
+        assert_eq!(files_after[0], "other.txt");
+
+        let _ = fs::remove_dir_all(&test_dir);
     }
 }

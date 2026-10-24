@@ -603,16 +603,22 @@ async fn delete_file_handler(
         })?;
 
     let vault_dir = Path::new(&payload.vault_path);
-    vault::delete_file(vault_dir, &master_key, &payload.file_path).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e }),
-        )
-    })?;
+    let trimmed = payload.file_path.trim().trim_matches('/');
+    let file_res = vault::delete_file(vault_dir, &master_key, trimmed);
+    if file_res.is_err() {
+        vault::delete_dir(vault_dir, &master_key, trimmed).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
+    } else {
+        let _ = vault::delete_dir(vault_dir, &master_key, trimmed);
+    }
 
     Ok(Json(GenericSuccessResponse {
         success: true,
-        message: "File deleted successfully".into(),
+        message: "File or directory deleted successfully".into(),
     }))
 }
 

@@ -1576,6 +1576,9 @@
                           </svg>
                           Umbenennen
                         </button>
+                        <button class="btn btn-danger btn-sm" onclick="handleDeleteDir('${escapeHtml(targetPath)}')">
+                          Löschen
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1921,6 +1924,29 @@
       await handleFileUpload([file]);
       document.getElementById("newFileNameInput").value = "";
       document.getElementById("newFileContentInput").value = "";
+    }
+
+    async function handleDeleteDir(dirPath) {
+      if (!confirm(`Möchtest du den Ordner "${dirPath}" und alle darin enthaltenen Dateien wirklich unwiderruflich löschen?`)) return;
+      try {
+        const res = await fetch("/api/vaults/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vault_path: selectedVault.path,
+            file_path: dirPath
+          })
+        });
+        if (res.ok) {
+          showToast(`Ordner "${dirPath}" gelöscht`, "success");
+          loadVaultFiles();
+        } else {
+          const err = await res.json();
+          showToast("Löschen fehlgeschlagen: " + err.error, "error");
+        }
+      } catch (err) {
+        showToast("Fehler beim Löschen: " + err, "error");
+      }
     }
 
     async function handleDeleteFile(filePath) {

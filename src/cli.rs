@@ -206,14 +206,17 @@ pub enum Commands {
         #[arg(short, long)]
         keyfile: Option<String>,
     },
-    /// Delete a file inside the vault
+    /// Delete a file or directory inside the vault
     Rm {
         /// Path to the vault folder containing masterkey.json
         #[arg(short, long)]
         path: String,
-        /// Relative path of the file inside the vault
+        /// Relative path of the file or directory inside the vault
         #[arg(short, long)]
         file: String,
+        /// Recursively delete directories and their contents
+        #[arg(short = 'r', long)]
+        recursive: bool,
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
