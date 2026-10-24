@@ -817,3 +817,152 @@ impl Filesystem for CryptomatorFS {
         reply.ok();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+    use super::*;
+
+    #[test]
+    fn test_fuse_tree_construction_and_read() {
+        let test_dir = std::env::temp_dir().join("cryptomator_fuse_tree_test");
+        let _ = std::fs::remove_dir_all(&test_dir);
+
+        vault::create_vault(&test_dir, "fusetest_pwd", None).unwrap();
+        let master_key = vault::unlock_vault(&test_dir, "fusetest_pwd", None).unwrap();
+
+        vault::write_file(&test_dir, &master_key, "readme.txt", b"Hello FUSE").unwrap();
+        vault::write_file(&test_dir, &master_key, "docs/manual.md", b"# FUSE Manual").unwrap();
+        vault::write_file(
+            &test_dir,
+            &master_key,
+            "docs/sub/arch.txt",
+            b"Pure Rust Architecture",
+        )
+        .unwrap();
+
+        let mut fs = CryptomatorFS::new(test_dir.clone(), master_key);
+
+        // 1. Verify root inode children
+        let root = fs.inodes.get(&1).unwrap();
+        if let FSNode::Directory { children, .. } = root {
+            assert!(children.contains_key("readme.txt"));
+            assert!(children.contains_key("docs"));
+            assert_eq!(children.len(), 2);
+
+            let docs_ino = children.get("docs").unwrap();
+            let docs_node = fs.inodes.get(docs_ino).unwrap();
+            if let FSNode::Directory {
+                children: docs_children,
+                ..
+            } = docs_node
+            {
+                assert!(docs_children.contains_key("manual.md"));
+                assert!(docs_children.contains_key("sub"));
+
+                let sub_ino = docs_children.get("sub").unwrap();
+                let sub_node = fs.inodes.get(sub_ino).unwrap();
+                if let FSNode::Directory {
+                    children: sub_children,
+                    ..
+                } = sub_node
+                {
+                    assert!(sub_children.contains_key("arch.txt"));
+                    let arch_ino = sub_children.get("arch.txt").unwrap();
+
+                    // Check path resolution
+                    assert_eq!(fs.get_node_path(*arch_ino), "docs/sub/arch.txt");
+
+                    // Read content
+                    let content = fs.load_file_content(*arch_ino).unwrap();
+                    assert_eq!(content, b"Pure Rust Architecture");
+                } else {
+                    panic!("sub should be directory");
+                }
+            } else {
+                panic!("docs should be directory");
+            }
+        } else {
+            panic!("inode 1 should be root directory");
+        }
+
+        let _ = std::fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_fuse_write_and_flush() {
+        let test_dir = std::env::temp_dir().join("cryptomator_fuse_write_test");
+        let _ = std::fs::remove_dir_all(&test_dir);
+
+        vault::create_vault(&test_dir, "fusetest_pwd", None).unwrap();
+        let master_key = vault::unlock_vault(&test_dir, "fusetest_pwd", None).unwrap();
+
+        vault::write_file(&test_dir, &master_key, "notes.txt", b"Original notes").unwrap();
+
+        let mut fs = CryptomatorFS::new(test_dir.clone(), master_key);
+        let root = fs.inodes.get(&1).unwrap();
+        let note_ino = match root {
+            FSNode::Directory { children, .. } => *children.get("notes.txt").unwrap(),
+            _ => panic!("Expected root dir"),
+        };
+
+        // Modify in-memory node and mark dirty
+        if let Some(FSNode::File {
+            content,
+            size,
+            dirty,
+            ..
+        }) = fs.inodes.get_mut(&note_ino)
+        {
+            *content = Some(b"Modified FUSE notes!".to_vec());
+            *size = b"Modified FUSE notes!".len();
+            *dirty = true;
+        }
+
+        // Flush to disk
+        fs.write_file_to_disk(note_ino).unwrap();
+
+        // Read directly from vault to ensure physical disk encryption
+        let disk_content = vault::read_file(&test_dir, &master_key, "notes.txt").unwrap();
+        assert_eq!(disk_content, b"Modified FUSE notes!");
+
+        let _ = std::fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_fuse_rename_recursive() {
+        let test_dir = std::env::temp_dir().join("cryptomator_fuse_rename_test");
+        let _ = std::fs::remove_dir_all(&test_dir);
+
+        vault::create_vault(&test_dir, "fusetest_pwd", None).unwrap();
+        let master_key = vault::unlock_vault(&test_dir, "fusetest_pwd", None).unwrap();
+
+        vault::write_file(
+            &test_dir,
+            &master_key,
+            "projects/rust/main.rs",
+            b"fn main() {}",
+        )
+        .unwrap();
+
+        let mut fs = CryptomatorFS::new(test_dir.clone(), master_key);
+        let root = fs.inodes.get(&1).unwrap();
+        let projects_ino = match root {
+            FSNode::Directory { children, .. } => *children.get("projects").unwrap(),
+            _ => panic!("Expected root dir"),
+        };
+
+        // Rename projects -> workspace
+        fs.rename_recursive(projects_ino, "projects", "workspace")
+            .unwrap();
+
+        // Check vault file listing
+        let files = vault::list_files(&test_dir, &master_key).unwrap();
+        assert_eq!(files, vec!["workspace/rust/main.rs"]);
+
+        let content = vault::read_file(&test_dir, &master_key, "workspace/rust/main.rs").unwrap();
+        assert_eq!(content, b"fn main() {}");
+
+        let _ = std::fs::remove_dir_all(&test_dir);
+    }
+}
