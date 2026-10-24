@@ -818,6 +818,72 @@ impl Filesystem for CryptomatorFS {
     }
 }
 
+/// Unmount an existing FUSE mountpoint cleanly using fusermount or umount
+pub fn unmount_mountpoint(mountpoint: &Path, force: bool) -> Result<(), String> {
+    let path_str = mountpoint.to_string_lossy().to_string();
+
+    let mut fusermount_args = vec!["-u"];
+    if force {
+        fusermount_args.push("-z");
+    }
+    fusermount_args.push(&path_str);
+
+    // 1. Try fusermount3
+    if std::process::Command::new("fusermount3")
+        .args(&fusermount_args)
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        return Ok(());
+    }
+
+    // 2. Try fusermount
+    if std::process::Command::new("fusermount")
+        .args(&fusermount_args)
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        return Ok(());
+    }
+
+    // 3. Fallback to umount
+    let mut umount_args = Vec::new();
+    if force {
+        umount_args.push("-f");
+    }
+    umount_args.push(&path_str);
+
+    if std::process::Command::new("umount")
+        .args(&umount_args)
+        .status()
+        .is_ok_and(|s| s.success())
+    {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Failed to unmount '{path_str}' via fusermount3, fusermount, or umount"
+    ))
+}
+
+/// Check if a path is currently registered as a mountpoint in the system
+pub fn is_mountpoint(mountpoint: &Path) -> bool {
+    let Ok(canonical) = mountpoint.canonicalize() else {
+        return false;
+    };
+    let target = canonical.to_string_lossy();
+
+    if let Ok(mounts) = std::fs::read_to_string("/proc/mounts") {
+        for line in mounts.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 && parts[1] == target {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

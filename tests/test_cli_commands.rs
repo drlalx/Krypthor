@@ -245,6 +245,74 @@ fn test_cli_vault_workflow() {
     assert!(output.status.success());
     assert_eq!(output.stdout, b"Confidential financial data");
 
+    // 9b. Search file contents via CLI (grep)
+    let output = Command::new(bin_path)
+        .args([
+            "grep",
+            "--path",
+            &vault_path,
+            "-q",
+            "financial",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute grep command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Found 1 match(es) across 1 file(s) for 'financial':"));
+    assert!(stdout.contains("finances/report.txt"));
+    assert!(stdout.contains("Confidential financial data"));
+
+    // 9c. Grep with JSON format
+    let output = Command::new(bin_path)
+        .args([
+            "grep",
+            "--path",
+            &vault_path,
+            "-q",
+            "financial",
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute grep --json command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"path\": \"finances/report.txt\""));
+    assert!(stdout.contains("\"line_number\": 1"));
+
+    // 9d. Grep with no match
+    let output = Command::new(bin_path)
+        .args([
+            "grep",
+            "--path",
+            &vault_path,
+            "-q",
+            "nonexistent_phrase_xyz",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute grep with no match");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("No matches found for 'nonexistent_phrase_xyz'."));
+
+    // 9e. Test unmount command failure handling on invalid mountpoint
+    let output = Command::new(bin_path)
+        .args([
+            "unmount",
+            "--mountpoint",
+            "/tmp/nonexistent_cryptomator_mount_point",
+        ])
+        .output()
+        .expect("Failed to execute unmount command");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Error unmounting"));
+
     // 10. Check stats via CLI
     let output = Command::new(bin_path)
         .args([

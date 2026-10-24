@@ -783,6 +783,116 @@ pub fn find_files(
         .collect())
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct GrepMatch {
+    pub line_number: usize,
+    pub line: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FileGrepResult {
+    pub path: String,
+    pub matches: Vec<GrepMatch>,
+}
+
+pub fn grep_vault(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    pattern: &str,
+    case_sensitive: bool,
+    subfolder: Option<&str>,
+    max_matches_per_file: Option<usize>,
+) -> Result<Vec<FileGrepResult>, String> {
+    if pattern.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let files = list_files(vault_dir, master_key)?;
+    let mut results = Vec::new();
+    let pat_lower = if case_sensitive {
+        String::new()
+    } else {
+        pattern.to_lowercase()
+    };
+
+    let norm_subfolder = subfolder.and_then(|s| {
+        let trimmed = s.trim_matches('/');
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+
+    let max_matches = max_matches_per_file.unwrap_or(100);
+
+    for rel_path in files {
+        if rel_path.ends_with("/.keep") || rel_path == ".keep" {
+            continue;
+        }
+
+        if let Some(ref sub) = norm_subfolder
+            && !rel_path.starts_with(sub)
+        {
+            continue;
+        }
+
+        let content = match read_file(vault_dir, master_key, &rel_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        // Binary check: skip files containing NUL bytes in the first 1024 bytes
+        let check_len = content.len().min(1024);
+        if content[..check_len].contains(&0) {
+            continue;
+        }
+
+        // Must be valid UTF-8
+        let text = match std::str::from_utf8(&content) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+
+        let mut file_matches = Vec::new();
+        for (idx, line) in text.lines().enumerate() {
+            let matched = if case_sensitive {
+                line.contains(pattern)
+            } else {
+                line.to_lowercase().contains(&pat_lower)
+            };
+
+            if matched {
+                let trimmed_line = if line.chars().count() > 300 {
+                    let mut s: String = line.chars().take(300).collect();
+                    s.push_str("...");
+                    s
+                } else {
+                    line.to_string()
+                };
+
+                file_matches.push(GrepMatch {
+                    line_number: idx + 1,
+                    line: trimmed_line,
+                });
+
+                if file_matches.len() >= max_matches {
+                    break;
+                }
+            }
+        }
+
+        if !file_matches.is_empty() {
+            results.push(FileGrepResult {
+                path: rel_path,
+                matches: file_matches,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>, String> {
     Ok(list_files_with_details(vault_dir, master_key)?
         .into_iter()
@@ -2145,6 +2255,79 @@ mod tests {
 
         // The actual file is still completely intact
         assert_eq!(read_file(&test_dir, &key, "fox.txt").unwrap(), data);
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_grep_vault() {
+        let test_dir = std::env::temp_dir().join("cryptomator_test_grep");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "grep_pass", None).unwrap();
+        let key = unlock_vault(&test_dir, "grep_pass", None).unwrap();
+
+        write_file(
+            &test_dir,
+            &key,
+            "notes.txt",
+            b"First line\nRust programming is fast\nThird line",
+        )
+        .unwrap();
+        write_file(
+            &test_dir,
+            &key,
+            "sub/code.rs",
+            b"// Rust code\nfn main() {\n    println!(\"rust\");\n}",
+        )
+        .unwrap();
+        write_file(
+            &test_dir,
+            &key,
+            "binary.dat",
+            &[0x00, 0x52, 0x75, 0x73, 0x74, 0x01],
+        )
+        .unwrap(); // Contains NUL byte
+        create_dir(&test_dir, &key, "empty_dir").unwrap(); // creates empty_dir/.keep
+
+        // 1. Case-insensitive search across all files
+        let matches = grep_vault(&test_dir, &key, "rust", false, None, None).unwrap();
+        assert_eq!(matches.len(), 2); // notes.txt and sub/code.rs (binary.dat skipped, empty_dir/.keep skipped)
+
+        let notes_res = matches.iter().find(|m| m.path == "notes.txt").unwrap();
+        assert_eq!(notes_res.matches.len(), 1);
+        assert_eq!(notes_res.matches[0].line_number, 2);
+        assert_eq!(notes_res.matches[0].line, "Rust programming is fast");
+
+        let code_res = matches.iter().find(|m| m.path == "sub/code.rs").unwrap();
+        assert_eq!(code_res.matches.len(), 2); // Line 1 and Line 3
+
+        // 2. Case-sensitive search
+        let matches_case = grep_vault(&test_dir, &key, "Rust", true, None, None).unwrap();
+        assert_eq!(matches_case.len(), 2);
+        let code_case = matches_case
+            .iter()
+            .find(|m| m.path == "sub/code.rs")
+            .unwrap();
+        assert_eq!(code_case.matches.len(), 1); // Only line 1 has capital "Rust"
+        assert_eq!(code_case.matches[0].line_number, 1);
+
+        // 3. Subfolder restriction
+        let matches_sub = grep_vault(&test_dir, &key, "rust", false, Some("sub"), None).unwrap();
+        assert_eq!(matches_sub.len(), 1);
+        assert_eq!(matches_sub[0].path, "sub/code.rs");
+
+        // 4. Max matches per file limit
+        let matches_limit =
+            grep_vault(&test_dir, &key, "rust", false, Some("sub"), Some(1)).unwrap();
+        assert_eq!(matches_limit[0].matches.len(), 1);
+
+        // 5. Empty pattern returns empty
+        assert!(
+            grep_vault(&test_dir, &key, "", false, None, None)
+                .unwrap()
+                .is_empty()
+        );
 
         let _ = fs::remove_dir_all(&test_dir);
     }

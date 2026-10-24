@@ -573,6 +573,13 @@
           </svg>
           Upload
         </button>
+        <button class="btn btn-secondary btn-sm" onclick="openGrepModal()" title="Volltextsuche in entschlüsselten Dateien">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          Inhaltssuche
+        </button>
         <button class="btn btn-secondary btn-sm" onclick="openModal('mkdirModal')">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
@@ -871,6 +878,38 @@
     </div>
   </div>
 
+  <!-- Content Search (Grep) Modal -->
+  <div class="modal-backdrop" id="grepModal">
+    <div class="modal-card modal-card-lg" style="max-width: 750px;">
+      <div class="modal-header">
+        <div class="modal-title">🔍 Inhaltssuche (Volltext-Grep)</div>
+        <button class="modal-close" onclick="closeModal('grepModal')">&times;</button>
+      </div>
+      <div style="padding: 10px 0;">
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <input type="text" id="grepPatternInput" class="form-input" placeholder="Suchbegriff oder Textmuster eingeben..." style="flex: 1;" onkeydown="if(event.key==='Enter') executeVaultGrep()">
+          <button class="btn btn-primary" onclick="executeVaultGrep()">Suchen</button>
+        </div>
+        <div style="display: flex; gap: 16px; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px;">
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" id="grepCaseSensitive"> Groß-/Kleinschreibung beachten
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" id="grepCurrentFolderOnly"> Nur im aktuellen Ordner (<span id="grepFolderLabel">/</span>)
+          </label>
+        </div>
+        <div id="grepResultsBody" style="max-height: 400px; overflow-y: auto; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; font-size: 0.85rem;">
+          <div style="text-align: center; color: var(--text-muted); padding: 25px;">
+            Gib einen Begriff ein, um alle Textdateien im Tresor zu durchsuchen.
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px;">
+        <button class="btn btn-primary" onclick="closeModal('grepModal')">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
@@ -1018,6 +1057,74 @@
     function handleFilterInput(query) {
       fileFilterQuery = query.trim().toLowerCase();
       renderFileList(rawVaultFiles);
+    }
+
+    function openGrepModal() {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      document.getElementById("grepFolderLabel").textContent = currentPath ? "/" + currentPath : "/";
+      document.getElementById("grepPatternInput").value = "";
+      document.getElementById("grepResultsBody").innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 25px;">Gib einen Begriff ein, um alle Textdateien im Tresor zu durchsuchen.</div>`;
+      openModal("grepModal");
+      setTimeout(() => document.getElementById("grepPatternInput").focus(), 100);
+    }
+
+    async function executeVaultGrep() {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      const pattern = document.getElementById("grepPatternInput").value.trim();
+      if (!pattern) return;
+
+      const caseSensitive = document.getElementById("grepCaseSensitive").checked;
+      const currentOnly = document.getElementById("grepCurrentFolderOnly").checked;
+      const subfolder = currentOnly && currentPath ? currentPath : "";
+
+      const box = document.getElementById("grepResultsBody");
+      box.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 25px;">🔍 Durchsuche entschlüsselte Dateien nach "${escapeHtml(pattern)}"...</div>`;
+
+      let url = `/api/vaults/grep?path=${encodeURIComponent(selectedVault.path)}&q=${encodeURIComponent(pattern)}&case_sensitive=${caseSensitive}`;
+      if (subfolder) {
+        url += `&subfolder=${encodeURIComponent(subfolder)}`;
+      }
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Grep-Suche fehlgeschlagen");
+        }
+        const results = await res.json();
+        if (results.length === 0) {
+          box.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 25px;">Keine Treffer für "${escapeHtml(pattern)}" gefunden.</div>`;
+          return;
+        }
+
+        let totalMatches = 0;
+        results.forEach(r => totalMatches += r.matches.length);
+
+        let html = `<div style="margin-bottom: 12px; font-weight: 600; color: var(--text-color);">${totalMatches} Treffer in ${results.length} Datei(en):</div>`;
+        results.forEach(fileRes => {
+          html += `
+            <div style="margin-bottom: 14px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+              <div style="font-weight: 600; display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+                <span style="color: var(--primary-color);">📄 ${escapeHtml(fileRes.path)}</span>
+                <button class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="closeModal('grepModal'); previewFile('${escapeHtml(fileRes.path)}')">Vorschau</button>
+              </div>
+              <div style="font-family: monospace; font-size: 0.8rem; background: var(--bg-hover); border-radius: 4px; padding: 6px 10px;">
+          `;
+          fileRes.matches.forEach(m => {
+            html += `
+              <div style="display: flex; gap: 8px; line-height: 1.4;">
+                <span style="color: var(--text-muted); min-width: 32px; user-select: none;">Zeile ${m.line_number}:</span>
+                <span style="white-space: pre-wrap; word-break: break-all;">${escapeHtml(m.line)}</span>
+              </div>
+            `;
+          });
+          html += `</div></div>`;
+        });
+
+        box.innerHTML = html;
+      } catch (err) {
+        box.innerHTML = `<div style="color: var(--danger-color); padding: 15px;">Fehler: ${escapeHtml(err.message)}</div>`;
+      }
     }
 
     function downloadVaultZip() {

@@ -111,6 +111,12 @@ struct CryptomatorApp {
     preview_file_name: String,
     preview_file_text: String,
 
+    // Content search (Grep) modal
+    grep_modal_open: bool,
+    grep_pattern: String,
+    grep_case_sensitive: bool,
+    grep_results: Vec<vault::FileGrepResult>,
+
     // Throughput & activity stats
     throughput_history: VecDeque<f32>,
     active_read_speed: f32,
@@ -204,6 +210,11 @@ impl CryptomatorApp {
             preview_modal_open: false,
             preview_file_name: String::new(),
             preview_file_text: String::new(),
+
+            grep_modal_open: false,
+            grep_pattern: String::new(),
+            grep_case_sensitive: false,
+            grep_results: Vec::new(),
 
             throughput_history,
             active_read_speed: 0.0,
@@ -1174,6 +1185,9 @@ impl CryptomatorApp {
                     .hint_text("🔍 Search...")
                     .desired_width(120.0),
             );
+            if ui.button("🔍 Grep").clicked() {
+                self.grep_modal_open = true;
+            }
             if ui
                 .add(Button::new("📥 Import File").accent(Accent::Blue))
                 .clicked()
@@ -1600,6 +1614,84 @@ impl CryptomatorApp {
                             }
                         }
                     });
+                });
+            ui.add_space(10.0);
+        }
+
+        if self.grep_modal_open {
+            Card::new()
+                .heading("In-Vault Content Search (Grep)")
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.grep_pattern)
+                                .hint_text("Enter pattern or text...")
+                                .desired_width(200.0),
+                        );
+                        ui.checkbox(&mut self.grep_case_sensitive, "Case sensitive");
+                        if ui.button("Search").clicked() && !self.grep_pattern.is_empty() {
+                            match vault::grep_vault(
+                                vault_path,
+                                &master_key,
+                                &self.grep_pattern,
+                                self.grep_case_sensitive,
+                                None,
+                                None,
+                            ) {
+                                Ok(results) => self.grep_results = results,
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Grep search failed: {e}"), true));
+                                }
+                            }
+                        }
+                        if ui.button("Close").clicked() {
+                            self.grep_modal_open = false;
+                        }
+                    });
+                    ui.add_space(8.0);
+                    if self.grep_results.is_empty() {
+                        ui.label(
+                            RichText::new("No matches found or no search performed yet.")
+                                .color(Color32::GRAY)
+                                .italics(),
+                        );
+                    } else {
+                        let total: usize = self.grep_results.iter().map(|r| r.matches.len()).sum();
+                        ui.label(
+                            RichText::new(format!(
+                                "Found {total} match(es) across {} file(s):",
+                                self.grep_results.len()
+                            ))
+                            .strong(),
+                        );
+                        egui::ScrollArea::vertical()
+                            .max_height(200.0)
+                            .show(ui, |ui| {
+                                for res in &self.grep_results {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(&res.path)
+                                                .color(Color32::from_rgb(59, 130, 246))
+                                                .strong(),
+                                        );
+                                        if ui.small_button("View").clicked()
+                                            && let Ok(content) =
+                                                vault::read_file(vault_path, &master_key, &res.path)
+                                        {
+                                            self.preview_file_name = res.path.clone();
+                                            self.preview_file_text =
+                                                String::from_utf8_lossy(&content).to_string();
+                                            self.preview_modal_open = true;
+                                        }
+                                    });
+                                    for m in &res.matches {
+                                        ui.label(format!("  Line {}: {}", m.line_number, m.line));
+                                    }
+                                    ui.add_space(4.0);
+                                }
+                            });
+                    }
                 });
             ui.add_space(10.0);
         }

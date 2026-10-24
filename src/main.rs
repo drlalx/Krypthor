@@ -39,6 +39,14 @@ pub fn save_saved_vaults(vaults: &[SavedVault]) {
     }
 }
 
+#[cfg(unix)]
+static MOUNT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(unix)]
+extern "C" fn sig_unmount_handler(_: libc::c_int) {
+    MOUNT_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
 fn main() {
     let args = cli::CliArgs::parse();
 
@@ -241,13 +249,38 @@ fn main() {
                                 "fsname=cryptomator-rs".to_string(),
                             )];
 
+                            MOUNT_RUNNING.store(true, std::sync::atomic::Ordering::SeqCst);
+                            unsafe {
+                                libc::signal(
+                                    libc::SIGINT,
+                                    sig_unmount_handler as *const () as usize,
+                                );
+                                libc::signal(
+                                    libc::SIGTERM,
+                                    sig_unmount_handler as *const () as usize,
+                                );
+                                libc::signal(
+                                    libc::SIGHUP,
+                                    sig_unmount_handler as *const () as usize,
+                                );
+                            }
+
                             match fuser::spawn_mount2(fs_impl, mount_dir, &mount_options) {
-                                Ok(_session) => {
+                                Ok(session) => {
                                     println!("Vault mounted successfully at {mount_dir:?}.");
                                     println!("Press Ctrl+C to unmount.");
-                                    loop {
-                                        std::thread::sleep(std::time::Duration::from_secs(1));
+                                    while MOUNT_RUNNING.load(std::sync::atomic::Ordering::SeqCst) {
+                                        std::thread::sleep(std::time::Duration::from_millis(200));
                                     }
+                                    println!(
+                                        "\nReceived termination signal. Unmounting {mount_dir:?} cleanly..."
+                                    );
+                                    drop(session);
+                                    if crate::fs_fuse::is_mountpoint(mount_dir) {
+                                        let _ =
+                                            crate::fs_fuse::unmount_mountpoint(mount_dir, false);
+                                    }
+                                    println!("Vault unmounted successfully.");
                                 }
                                 Err(e) => {
                                     eprintln!("Mount failed: {e}");
@@ -1226,6 +1259,96 @@ fn main() {
                         eprintln!("Unlock failed: {e}");
                         std::process::exit(1);
                     }
+                }
+                return;
+            }
+            cli::Commands::Grep {
+                path,
+                pattern,
+                case_sensitive,
+                subfolder,
+                max_matches,
+                password,
+                keyfile,
+                json,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
+                    Ok(master_key) => {
+                        match vault::grep_vault(
+                            path_buf,
+                            &master_key,
+                            &pattern,
+                            case_sensitive,
+                            subfolder.as_deref(),
+                            max_matches,
+                        ) {
+                            Ok(results) => {
+                                if json {
+                                    println!(
+                                        "{}",
+                                        serde_json::to_string_pretty(&results)
+                                            .unwrap_or_else(|_| "[]".into())
+                                    );
+                                } else if results.is_empty() {
+                                    println!("No matches found for '{pattern}'.");
+                                } else {
+                                    let total_matches: usize =
+                                        results.iter().map(|r| r.matches.len()).sum();
+                                    println!(
+                                        "Found {total_matches} match(es) across {} file(s) for '{pattern}':\n",
+                                        results.len()
+                                    );
+                                    for r in &results {
+                                        println!("{}", r.path);
+                                        for m in &r.matches {
+                                            println!("  {:>4}: {}", m.line_number, m.line);
+                                        }
+                                        println!();
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Grep failed: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Unmount { mountpoint, force } => {
+                let mount_dir = Path::new(&mountpoint);
+                println!("Unmounting {mount_dir:?}...");
+                #[cfg(unix)]
+                {
+                    match crate::fs_fuse::unmount_mountpoint(mount_dir, force) {
+                        Ok(()) => println!("Successfully unmounted {mountpoint}."),
+                        Err(e) => {
+                            eprintln!("Error unmounting {mountpoint}: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = (mount_dir, force);
+                    eprintln!("FUSE unmount is only supported on Unix/Linux platforms.");
+                    std::process::exit(1);
                 }
                 return;
             }

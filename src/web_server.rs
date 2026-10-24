@@ -111,6 +111,15 @@ pub struct FindQuery {
 }
 
 #[derive(Deserialize)]
+pub struct GrepQuery {
+    pub path: String,
+    pub q: String,
+    pub case_sensitive: Option<bool>,
+    pub subfolder: Option<String>,
+    pub max_matches: Option<usize>,
+}
+
+#[derive(Deserialize)]
 pub struct HashQuery {
     pub path: String,
     pub file: String,
@@ -417,6 +426,38 @@ async fn find_files_handler(
 
     let files = items.iter().map(|item| item.path.clone()).collect();
     Ok(Json(FilesResponse { files, items }))
+}
+
+async fn grep_files_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<GrepQuery>,
+) -> Result<Json<Vec<vault::FileGrepResult>>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked or session expired".into(),
+            }),
+        )
+    })?;
+
+    let vault_path = Path::new(&query.path);
+    let results = vault::grep_vault(
+        vault_path,
+        &master_key,
+        &query.q,
+        query.case_sensitive.unwrap_or(false),
+        query.subfolder.as_deref(),
+        query.max_matches,
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(results))
 }
 
 async fn vault_stats_handler(
@@ -1110,6 +1151,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/rename_vault", post(rename_vault_handler))
         .route("/api/vaults/files", get(list_files_handler))
         .route("/api/vaults/find", get(find_files_handler))
+        .route("/api/vaults/grep", get(grep_files_handler))
         .route("/api/vaults/stats", get(vault_stats_handler))
         .route("/api/vaults/verify", get(verify_vault_handler))
         .route("/api/vaults/prune", post(prune_vault_handler))
@@ -1195,7 +1237,7 @@ mod tests {
     #[tokio::test]
     async fn test_web_status_endpoint() {
         let state = Arc::new(AppState::default());
-        let router = build_router(state);
+        let router = build_router(state.clone());
 
         let response = router
             .oneshot(
@@ -1213,7 +1255,7 @@ mod tests {
     #[tokio::test]
     async fn test_web_index_html() {
         let state = Arc::new(AppState::default());
-        let router = build_router(state);
+        let router = build_router(state.clone());
 
         let response = router
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
@@ -1233,7 +1275,7 @@ mod tests {
         let original_saved = load_saved_vaults();
 
         let state = Arc::new(AppState::default());
-        let router = build_router(state);
+        let router = build_router(state.clone());
 
         // 1. Create vault via API
         let create_req = AddVaultRequest {
@@ -1380,7 +1422,7 @@ mod tests {
         let original_saved = load_saved_vaults();
 
         let state = Arc::new(AppState::default());
-        let router = build_router(state);
+        let router = build_router(state.clone());
 
         // 1. Create vault
         let create_req = AddVaultRequest {
@@ -1792,7 +1834,7 @@ mod tests {
         let kf2_str = kf2.to_string_lossy().to_string();
 
         let state = Arc::new(AppState::default());
-        let router = build_router(state);
+        let router = build_router(state.clone());
 
         // 1. Create vault with keyfile via API
         let create_req = AddVaultRequest {
@@ -1921,7 +1963,7 @@ mod tests {
         crate::vault::write_file(&vault_dir, &key, "images/photo.jpg", b"JPG").unwrap();
 
         let state = Arc::new(AppState::default());
-        let router = build_router(state);
+        let router = build_router(state.clone());
 
         let unlock_req = UnlockVaultRequest {
             path: vault_dir.to_string_lossy().to_string(),
@@ -2028,5 +2070,127 @@ mod tests {
 
         // get_master_key must return Some(key)
         assert_eq!(state.get_master_key(&path).await, Some(key));
+    }
+
+    #[tokio::test]
+    async fn test_web_api_grep() {
+        let _guard = TEST_LOCK.lock().await;
+        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_grep");
+        if temp_dir.exists() {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+        }
+        let original_saved = load_saved_vaults();
+
+        let state = Arc::new(AppState::default());
+        let router = build_router(state.clone());
+
+        // 1. Create and unlock vault
+        let create_req = AddVaultRequest {
+            name: "GrepTestVault".to_string(),
+            path: temp_dir.to_string_lossy().to_string(),
+            password: Some("greppass".to_string()),
+            create_new: true,
+            keyfile: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&create_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let unlock_req = UnlockVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+            password: "greppass".to_string(),
+            keyfile: None,
+            timeout_minutes: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 2. Write file inside the vault
+        let key = state
+            .get_master_key(&temp_dir.to_string_lossy())
+            .await
+            .unwrap();
+        crate::vault::write_file(
+            &temp_dir,
+            &key,
+            "security.txt",
+            b"Header line\nRust cryptography is fast\nFooter line",
+        )
+        .unwrap();
+
+        // 3. Call grep endpoint with matching query
+        let uri = format!(
+            "/api/vaults/grep?path={}&q=cryptography",
+            temp_dir.to_string_lossy()
+        );
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(&uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let grep_res: Vec<crate::vault::FileGrepResult> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(grep_res.len(), 1);
+        assert_eq!(grep_res[0].path, "security.txt");
+        assert_eq!(grep_res[0].matches.len(), 1);
+        assert_eq!(grep_res[0].matches[0].line_number, 2);
+        assert_eq!(grep_res[0].matches[0].line, "Rust cryptography is fast");
+
+        // 4. Call grep endpoint with non-matching query
+        let uri = format!(
+            "/api/vaults/grep?path={}&q=nonexistentword",
+            temp_dir.to_string_lossy()
+        );
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(&uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let grep_res: Vec<crate::vault::FileGrepResult> = serde_json::from_slice(&body).unwrap();
+        assert!(grep_res.is_empty());
+
+        // Cleanup
+        save_saved_vaults(&original_saved);
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

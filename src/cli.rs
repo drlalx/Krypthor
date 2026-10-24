@@ -410,4 +410,40 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Search for text patterns across all decrypted files inside the vault (grep)
+    Grep {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Search pattern or text
+        #[arg(short = 'q', long)]
+        pattern: String,
+        /// Case-sensitive search
+        #[arg(short = 'c', long)]
+        case_sensitive: bool,
+        /// Optional subfolder inside the vault to restrict search
+        #[arg(short = 's', long)]
+        subfolder: Option<String>,
+        /// Maximum matches per file (default: 100)
+        #[arg(short = 'm', long)]
+        max_matches: Option<usize>,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Unmount an active FUSE mountpoint
+    Unmount {
+        /// Directory where the vault was mounted
+        #[arg(short, long)]
+        mountpoint: String,
+        /// Force unmount if busy
+        #[arg(short, long)]
+        force: bool,
+    },
 }
