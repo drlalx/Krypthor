@@ -676,8 +676,32 @@ impl CryptomatorApp {
             });
 
             ui.add_space(10.0);
-            ui.label(RichText::new("Master Password").strong());
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Master Password").strong());
+                if ui.button("🎲 Generate Strong").clicked() {
+                    let generated_pw = vault::generate_secure_password(22);
+                    self.create_password = generated_pw.clone();
+                    self.create_password_confirm = generated_pw;
+                    ui.ctx().copy_text(self.create_password.clone());
+                    self.status_message =
+                        Some(("Generated password copied to clipboard!".to_string(), false));
+                }
+            });
             ui.add(egui::TextEdit::singleline(&mut self.create_password).password(true));
+            if !self.create_password.is_empty() {
+                let (score, label) = vault::password_strength_score(&self.create_password);
+                let color = match score {
+                    1 => Color32::from_rgb(239, 68, 68),
+                    2 => Color32::from_rgb(245, 158, 11),
+                    3 => Color32::from_rgb(16, 185, 129),
+                    _ => Color32::from_rgb(59, 130, 246),
+                };
+                ui.label(
+                    RichText::new(format!("Strength: {label} (Score {score}/4)"))
+                        .color(color)
+                        .size(12.0),
+                );
+            }
 
             ui.add_space(10.0);
             ui.label(RichText::new("Confirm Password").strong());
@@ -1278,8 +1302,32 @@ impl CryptomatorApp {
                     }
                 });
 
-                ui.label("New Password:");
+                ui.horizontal(|ui| {
+                    ui.label("New Password:");
+                    if ui.button("🎲 Generate Strong").clicked() {
+                        let generated_pw = vault::generate_secure_password(22);
+                        self.change_pw_new = generated_pw.clone();
+                        self.change_pw_confirm = generated_pw;
+                        ui.ctx().copy_text(self.change_pw_new.clone());
+                        self.status_message =
+                            Some(("Generated password copied to clipboard!".to_string(), false));
+                    }
+                });
                 ui.add(egui::TextEdit::singleline(&mut self.change_pw_new).password(true));
+                if !self.change_pw_new.is_empty() {
+                    let (score, label) = vault::password_strength_score(&self.change_pw_new);
+                    let color = match score {
+                        1 => Color32::from_rgb(239, 68, 68),
+                        2 => Color32::from_rgb(245, 158, 11),
+                        3 => Color32::from_rgb(16, 185, 129),
+                        _ => Color32::from_rgb(59, 130, 246),
+                    };
+                    ui.label(
+                        RichText::new(format!("Strength: {label} (Score {score}/4)"))
+                            .color(color)
+                            .size(12.0),
+                    );
+                }
                 ui.label("Confirm New Password:");
                 ui.add(egui::TextEdit::singleline(&mut self.change_pw_confirm).password(true));
 

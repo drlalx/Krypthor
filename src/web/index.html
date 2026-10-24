@@ -663,8 +663,14 @@
         </select>
       </div>
       <div class="form-group" id="vaultPasswordGroup">
-        <label class="form-label">Passwort für neuen Tresor</label>
-        <input type="password" id="vaultNewPasswordInput" class="form-input" placeholder="Mindestens 8 Zeichen">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label class="form-label" style="margin: 0;">Passwort für neuen Tresor</label>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="generateAndSetPassword('vaultNewPasswordInput', 'vaultNewPasswordStrength')" style="padding: 2px 8px; font-size: 0.75rem;">
+            🎲 Sicheres Passwort generieren
+          </button>
+        </div>
+        <input type="password" id="vaultNewPasswordInput" class="form-input" placeholder="Mindestens 8 Zeichen" oninput="updatePasswordStrength('vaultNewPasswordInput', 'vaultNewPasswordStrength')">
+        <div id="vaultNewPasswordStrength" style="margin-top: 4px; font-size: 0.75rem; color: var(--text-muted); display: none;"></div>
       </div>
       <div class="form-group" id="vaultKeyfileGroup">
         <label class="form-label">Schlüsseldatei für 2FA (optional)</label>
@@ -756,8 +762,14 @@
         <input type="text" id="oldKeyfileInput" class="form-input" placeholder="/pfad/zur/bisherigen/datei.key">
       </div>
       <div class="form-group">
-        <label class="form-label">Neues Passwort</label>
-        <input type="password" id="newPasswordInput" class="form-input" placeholder="Mindestens 8 Zeichen">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+          <label class="form-label" style="margin: 0;">Neues Passwort</label>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="generateAndSetPassword('newPasswordInput', 'newPasswordStrength', 'newPasswordConfirmInput')" style="padding: 2px 8px; font-size: 0.75rem;">
+            🎲 Sicheres Passwort generieren
+          </button>
+        </div>
+        <input type="password" id="newPasswordInput" class="form-input" placeholder="Mindestens 8 Zeichen" oninput="updatePasswordStrength('newPasswordInput', 'newPasswordStrength')">
+        <div id="newPasswordStrength" style="margin-top: 4px; font-size: 0.75rem; color: var(--text-muted); display: none;"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Neues Passwort bestätigen</label>
@@ -855,6 +867,73 @@
         hour: "2-digit",
         minute: "2-digit"
       });
+    }
+
+    function generateSecurePassword(length = 22) {
+      const charset = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*-_=+?";
+      const array = new Uint32Array(length);
+      window.crypto.getRandomValues(array);
+      let res = "";
+      for (let i = 0; i < length; i++) {
+        res += charset[array[i] % charset.length];
+      }
+      return res;
+    }
+
+    function calculatePasswordStrength(pw) {
+      if (!pw || pw.length === 0) return { score: 0, label: "", color: "" };
+      let score = 0;
+      if (pw.length >= 8) score += 1;
+      if (pw.length >= 14) score += 1;
+      if (pw.length >= 20) score += 1;
+      if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score += 1;
+      if (/\d/.test(pw)) score += 1;
+      if (/[^a-zA-Z0-9]/.test(pw)) score += 1;
+
+      if (score <= 2) return { score: 1, label: "Schwach (⚠️ unsicher)", color: "#ef4444" };
+      if (score <= 4) return { score: 2, label: "Mittel (akzeptabel)", color: "#f59e0b" };
+      if (score === 5) return { score: 3, label: "Stark (sehr gut)", color: "#10b981" };
+      return { score: 4, label: "Exzellent (höchste Sicherheit)", color: "#3b82f6" };
+    }
+
+    function updatePasswordStrength(inputId, indicatorId) {
+      const input = document.getElementById(inputId);
+      const indicator = document.getElementById(indicatorId);
+      if (!input || !indicator) return;
+      const pw = input.value;
+      if (!pw) {
+        indicator.style.display = "none";
+        return;
+      }
+      const strength = calculatePasswordStrength(pw);
+      indicator.innerHTML = `Stärke: <strong style="color: ${strength.color};">${strength.label}</strong> (${pw.length} Zeichen)`;
+      indicator.style.display = "block";
+    }
+
+    function generateAndSetPassword(inputId, indicatorId, confirmId = null) {
+      const generated = generateSecurePassword(22);
+      const input = document.getElementById(inputId);
+      if (input) {
+        input.value = generated;
+        input.type = "text";
+        updatePasswordStrength(inputId, indicatorId);
+      }
+      if (confirmId) {
+        const confirmInput = document.getElementById(confirmId);
+        if (confirmInput) {
+          confirmInput.value = generated;
+          confirmInput.type = "text";
+        }
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(generated).then(() => {
+          showToast("Sicheres Passwort generiert und in die Zwischenablage kopiert!", "info");
+        }).catch(() => {
+          showToast("Sicheres Passwort generiert!", "info");
+        });
+      } else {
+        showToast("Sicheres Passwort generiert!", "info");
+      }
     }
 
     function toggleSort(field) {

@@ -154,6 +154,49 @@ pub fn get_physical_filename(master_key: &[u8; 32], relative_path: &str) -> Stri
     format!("{}.c9r", hex::encode(result))
 }
 
+pub fn generate_secure_password(length: usize) -> String {
+    const CHARSET: &[u8] = b"abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*-_=+?";
+    let mut rng = rand::thread_rng();
+    let mut bytes = vec![0u8; length];
+    rng.fill_bytes(&mut bytes);
+    bytes
+        .iter()
+        .map(|b| CHARSET[(*b as usize) % CHARSET.len()] as char)
+        .collect()
+}
+
+pub fn password_strength_score(pw: &str) -> (u8, &'static str) {
+    if pw.is_empty() {
+        return (0, "");
+    }
+    let mut score = 0;
+    if pw.len() >= 8 {
+        score += 1;
+    }
+    if pw.len() >= 14 {
+        score += 1;
+    }
+    if pw.len() >= 20 {
+        score += 1;
+    }
+    if pw.chars().any(|c| c.is_lowercase()) && pw.chars().any(|c| c.is_uppercase()) {
+        score += 1;
+    }
+    if pw.chars().any(|c| c.is_ascii_digit()) {
+        score += 1;
+    }
+    if pw.chars().any(|c| !c.is_alphanumeric()) {
+        score += 1;
+    }
+
+    match score {
+        0..=2 => (1, "Weak"),
+        3..=4 => (2, "Medium"),
+        5 => (3, "Strong"),
+        _ => (4, "Excellent"),
+    }
+}
+
 pub fn create_vault(
     vault_dir: &Path,
     password: &str,
@@ -1425,5 +1468,21 @@ mod tests {
         assert_eq!(&out_buffer, data);
 
         let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_password_generator_and_strength() {
+        let pw20 = generate_secure_password(20);
+        assert_eq!(pw20.len(), 20);
+
+        let pw32 = generate_secure_password(32);
+        assert_eq!(pw32.len(), 32);
+
+        assert_eq!(password_strength_score("").0, 0);
+        assert_eq!(password_strength_score("12345").1, "Weak");
+        assert_eq!(password_strength_score("secretpassword").1, "Weak");
+        assert_eq!(password_strength_score("secretpassword123").1, "Medium");
+        assert_eq!(password_strength_score("SecretPass123!").1, "Strong");
+        assert_eq!(password_strength_score(&pw32).1, "Excellent");
     }
 }
