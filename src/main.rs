@@ -106,9 +106,14 @@ fn main() {
                     std::process::exit(1);
                 }
             }
-            cli::Commands::List => {
+            cli::Commands::List { json } => {
                 let vaults = load_saved_vaults();
-                if vaults.is_empty() {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&vaults).unwrap_or_else(|_| "[]".into())
+                    );
+                } else if vaults.is_empty() {
                     println!("No registered vaults found.");
                 } else {
                     println!("Registered vaults:");
@@ -312,6 +317,7 @@ fn main() {
                 path,
                 password,
                 keyfile,
+                json,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -327,11 +333,21 @@ fn main() {
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
                         let rec_key = vault::export_recovery_key(&master_key);
-                        println!("Vault Recovery Key:");
-                        println!("  {rec_key}");
-                        println!(
-                            "\nStore this key safely! It can unlock your vault without a password."
-                        );
+                        if json {
+                            println!(
+                                "{}",
+                                serde_json::json!({
+                                    "path": path,
+                                    "recovery_key": rec_key
+                                })
+                            );
+                        } else {
+                            println!("Vault Recovery Key:");
+                            println!("  {rec_key}");
+                            println!(
+                                "\nStore this key safely! It can unlock your vault without a password."
+                            );
+                        }
                     }
                     Err(e) => {
                         eprintln!("Error unlocking vault: {e}");
@@ -379,6 +395,7 @@ fn main() {
                 keyfile,
                 long,
                 pattern,
+                json,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -407,7 +424,13 @@ fn main() {
                                 })
                                 .collect();
 
-                            if visible.is_empty() {
+                            if json {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&visible)
+                                        .unwrap_or_else(|_| "[]".into())
+                                );
+                            } else if visible.is_empty() {
                                 if pattern.is_some() {
                                     println!("No matching files found.");
                                 } else {
@@ -446,6 +469,7 @@ fn main() {
                 password,
                 keyfile,
                 long,
+                json,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -461,7 +485,13 @@ fn main() {
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::find_files(path_buf, &master_key, &query) {
                         Ok(items) => {
-                            if items.is_empty() {
+                            if json {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&items)
+                                        .unwrap_or_else(|_| "[]".into())
+                                );
+                            } else if items.is_empty() {
                                 println!("No files matching '{query}' found.");
                             } else {
                                 for item in items {
@@ -675,6 +705,7 @@ fn main() {
                 path,
                 password,
                 keyfile,
+                json,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -690,12 +721,20 @@ fn main() {
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::get_vault_stats(path_buf, &master_key) {
                         Ok(stats) => {
-                            println!("Vault Statistics for '{path}':");
-                            println!("  Decrypted Files: {}", stats.total_files);
-                            println!(
-                                "  Payload Size:    {}",
-                                format_bytes_cli(stats.total_size_bytes)
-                            );
+                            if json {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&stats)
+                                        .unwrap_or_else(|_| "{}".into())
+                                );
+                            } else {
+                                println!("Vault Statistics for '{path}':");
+                                println!("  Decrypted Files: {}", stats.total_files);
+                                println!(
+                                    "  Payload Size:    {}",
+                                    format_bytes_cli(stats.total_size_bytes)
+                                );
+                            }
                         }
                         Err(e) => {
                             eprintln!("Error computing stats: {e}");
@@ -824,6 +863,7 @@ fn main() {
                 path,
                 password,
                 keyfile,
+                json,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -839,26 +879,39 @@ fn main() {
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => match vault::verify_vault_integrity(path_buf, &master_key) {
                         Ok(report) => {
-                            println!("Vault Integrity Report for '{path}':");
-                            if report.is_healthy {
+                            if json {
                                 println!(
-                                    "  Status:           HEALTHY (All integrity checks passed)"
+                                    "{}",
+                                    serde_json::to_string_pretty(&report)
+                                        .unwrap_or_else(|_| "{}".into())
                                 );
                             } else {
-                                println!("  Status:           CORRUPTED (Integrity issues found!)");
-                            }
-                            println!("  Files Checked:    {}", report.total_checked);
-                            println!("  Valid Files:      {}", report.valid_files);
-                            if !report.corrupted_files.is_empty() {
-                                println!("  Corrupted Files ({}):", report.corrupted_files.len());
-                                for c in &report.corrupted_files {
-                                    println!("    - {c}");
+                                println!("Vault Integrity Report for '{path}':");
+                                if report.is_healthy {
+                                    println!(
+                                        "  Status:           HEALTHY (All integrity checks passed)"
+                                    );
+                                } else {
+                                    println!(
+                                        "  Status:           CORRUPTED (Integrity issues found!)"
+                                    );
                                 }
-                            }
-                            if !report.orphaned_files.is_empty() {
-                                println!("  Orphaned Files ({}):", report.orphaned_files.len());
-                                for o in &report.orphaned_files {
-                                    println!("    - {o}");
+                                println!("  Files Checked:    {}", report.total_checked);
+                                println!("  Valid Files:      {}", report.valid_files);
+                                if !report.corrupted_files.is_empty() {
+                                    println!(
+                                        "  Corrupted Files ({}):",
+                                        report.corrupted_files.len()
+                                    );
+                                    for c in &report.corrupted_files {
+                                        println!("    - {c}");
+                                    }
+                                }
+                                if !report.orphaned_files.is_empty() {
+                                    println!("  Orphaned Files ({}):", report.orphaned_files.len());
+                                    for o in &report.orphaned_files {
+                                        println!("    - {o}");
+                                    }
                                 }
                             }
                             if !report.is_healthy {

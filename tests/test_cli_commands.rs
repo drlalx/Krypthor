@@ -212,6 +212,22 @@ fn test_cli_vault_workflow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("No files matching 'nonexistent_xyz' found."));
 
+    // 8e. List files JSON format (ls --json)
+    let output = Command::new(bin_path)
+        .args([
+            "ls",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute ls --json");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"path\": \"finances/report.txt\""));
+
     // 9. Read file content via CLI (cat)
     let output = Command::new(bin_path)
         .args([
@@ -242,6 +258,22 @@ fn test_cli_vault_workflow() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Decrypted Files: 1"));
+
+    // 10b. Check stats JSON format
+    let output = Command::new(bin_path)
+        .args([
+            "stats",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute stats --json");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"total_files\": 1"));
 
     // 11. Rename/move file via CLI (mv)
     let output = Command::new(bin_path)
@@ -376,6 +408,15 @@ fn test_cli_vault_workflow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("SuperVault"));
 
+    // 18b. List vaults via CLI in JSON format
+    let output = Command::new(bin_path)
+        .args(["list", "--json"])
+        .output()
+        .expect("Failed to execute list --json");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"name\": \"SuperVault\""));
+
     // 19. Remove vault from vaults.json via CLI (remove)
     let output = Command::new(bin_path)
         .args(["remove", "--path", &vault_path])
@@ -405,6 +446,22 @@ fn test_cli_vault_workflow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Status:           HEALTHY"));
     assert!(stdout.contains("Valid Files:      3"));
+
+    // 21b. Verify vault integrity in JSON format
+    let output = Command::new(bin_path)
+        .args([
+            "verify",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute verify --json");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"is_healthy\": true"));
 
     // 22. Backup masterkey via CLI (backup-key)
     let custom_backup = test_dir.join("explicit_backup.json");

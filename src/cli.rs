@@ -30,7 +30,11 @@ pub enum Commands {
         port: u16,
     },
     /// List all registered vaults
-    List,
+    List {
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Register an existing vault folder in the configuration
     Add {
         /// Optional display name (defaults to folder name)
@@ -114,6 +118,9 @@ pub enum Commands {
         /// Optional path to a keyfile
         #[arg(short, long)]
         keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Verify or recover a vault using its recovery key
     Recover {
@@ -141,6 +148,9 @@ pub enum Commands {
         /// Optional substring filter pattern
         #[arg(long)]
         pattern: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Search for files inside the vault matching a query or pattern
     Find {
@@ -159,6 +169,9 @@ pub enum Commands {
         /// Display detailed long listing with size and modification timestamp
         #[arg(short = 'l', long)]
         long: bool,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Encrypt and store a file into the vault
     Put {
@@ -237,6 +250,9 @@ pub enum Commands {
         /// Optional path to a keyfile
         #[arg(short, long)]
         keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Create a directory inside the vault
     Mkdir {
@@ -297,6 +313,9 @@ pub enum Commands {
         /// Optional path to a keyfile
         #[arg(short, long)]
         keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Create an explicit timestamped or custom backup copy of masterkey.json
     BackupKey {
