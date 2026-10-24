@@ -70,6 +70,7 @@ cargo run --release -- --tui
 - `[↑/↓]` oder `[j/k]`: Tresor auswählen
 - `[Enter]` oder `[u]`: Tresor mit Passwort & optionaler Schlüsseldatei entsperren & FUSE-Mount aktivieren
 - `[v]`: Kryptografische Integritätsprüfung für entsperrten Tresor ausführen
+- `[b]`: Masterkey-Sicherheitskopie für ausgewählten Tresor anlegen
 - `[n]`: Ausgewählten Tresor umbenennen
 - `[d]`: Ausgewählten Tresor aus der Liste entfernen
 - `[r]`: Tresor mit 64-stelligem Recovery-Key wiederherstellen & mounten

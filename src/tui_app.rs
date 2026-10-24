@@ -389,6 +389,26 @@ fn run_loop<B: ratatui::backend::Backend>(
                             }
                         }
                     }
+                    KeyCode::Char('b') => {
+                        if let Some(idx) = app.list_state.selected() {
+                            let path = PathBuf::from(&app.vaults[idx].path);
+                            match vault::create_masterkey_backup(&path, None) {
+                                Ok(dest) => {
+                                    let filename = dest
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("backup");
+                                    app.status_message =
+                                        format!("Masterkey backup created: {filename}");
+                                    app.status_is_error = false;
+                                }
+                                Err(e) => {
+                                    app.status_message = format!("Masterkey backup failed: {e}");
+                                    app.status_is_error = true;
+                                }
+                            }
+                        }
+                    }
                     KeyCode::Char('r') => {
                         if app.list_state.selected().is_some() {
                             app.input_mode = InputMode::RecoverKeyInput;
@@ -949,7 +969,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .style(Style::default().bg(theme_dark_bg));
 
     let bindings_text = Span::styled(
-        " [↑/↓] Select  [Enter] Toggle  [v] Verify  [n] Rename  [d] Remove  [r] Recover  [x] Key  [a] Add  [c] Create  [q] Quit",
+        " [↑/↓] Select  [Enter] Toggle  [v] Verify  [b] Backup  [n] Rename  [d] Remove  [r] Recover  [x] Key  [a] Add  [c] Create  [q] Quit",
         Style::default().fg(theme_cyan),
     );
 

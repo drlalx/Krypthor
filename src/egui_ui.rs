@@ -1583,6 +1583,54 @@ impl CryptomatorApp {
 
         ui.add_space(12.0);
         Card::new()
+            .heading("Masterkey Backup & Disaster Recovery")
+            .show(ui, |ui| {
+                ui.label(
+                    "Create automated backups of masterkey.json or restore from a backup file.",
+                );
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    if ui.button("💾 Backup Masterkey Now").clicked() {
+                        match vault::create_masterkey_backup(vault_path, None) {
+                            Ok(dest) => {
+                                self.status_message = Some((
+                                    format!("Masterkey backup saved at {}", dest.display()),
+                                    false,
+                                ));
+                            }
+                            Err(e) => {
+                                self.status_message =
+                                    Some((format!("Masterkey backup failed: {e}"), true));
+                            }
+                        }
+                    }
+                    if ui.button("🔄 Restore from Backup...").clicked() {
+                        let filter = rfd::FileDialog::new()
+                            .set_directory(vault_path)
+                            .add_filter("Backup Key", &["bkup", "json"]);
+                        if let Some(bkup_file) = filter.pick_file() {
+                            match vault::restore_masterkey_backup(vault_path, Some(&bkup_file)) {
+                                Ok(_) => {
+                                    self.status_message = Some((
+                                        format!(
+                                            "Masterkey successfully restored from {}",
+                                            bkup_file.display()
+                                        ),
+                                        false,
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Masterkey restore failed: {e}"), true));
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+
+        ui.add_space(12.0);
+        Card::new()
             .heading("Live Activity & Throughput")
             .show(ui, |ui| {
                 ui.horizontal(|ui| {

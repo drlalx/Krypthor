@@ -609,6 +609,14 @@
           </svg>
           Integrität prüfen
         </button>
+        <button class="btn btn-secondary btn-sm" onclick="backupMasterkey()" title="Sicherheitskopie des Masterkeys anlegen">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          Key Backup
+        </button>
         <button class="btn btn-danger btn-sm" onclick="lockCurrentVault()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
@@ -949,6 +957,47 @@
       }
     }
 
+    async function backupMasterkey() {
+      if (!selectedVault) return;
+      try {
+        const res = await fetch("/api/vaults/backup_key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vault_path: selectedVault.path })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          showToast(data.message || "Masterkey Backup erfolgreich erstellt!", "success");
+        } else {
+          const err = await res.json();
+          showToast("Fehler beim Backup: " + (err.error || "Unbekannter Fehler"), "error");
+        }
+      } catch (err) {
+        showToast("Fehler: " + err, "error");
+      }
+    }
+
+    async function restoreMasterkeyPrompt() {
+      if (!selectedVault) return;
+      if (!confirm(`Möchtest du den Masterkey für "${selectedVault.name}" aus dem Backup (masterkey.json.bkup) wiederherstellen?`)) return;
+      try {
+        const res = await fetch("/api/vaults/restore_key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vault_path: selectedVault.path })
+        });
+        if (res.ok) {
+          showToast("Masterkey erfolgreich aus Backup wiederhergestellt!", "success");
+          await loadVaults();
+        } else {
+          const err = await res.json();
+          showToast("Fehler bei Wiederherstellung: " + (err.error || "Unbekannt"), "error");
+        }
+      } catch (err) {
+        showToast("Fehler: " + err, "error");
+      }
+    }
+
     async function loadVaultStats() {
       const badge = document.getElementById("vaultStatsBadge");
       if (!selectedVault || !selectedVault.is_unlocked) {
@@ -1108,9 +1157,12 @@
               </div>
               <button type="submit" class="btn btn-primary" style="width: 100%;">Tresor entsperren</button>
             </form>
-            <div style="margin-top: 14px; text-align: center;">
+            <div style="margin-top: 14px; text-align: center; display: flex; flex-direction: column; gap: 8px;">
               <button class="btn btn-secondary btn-sm" onclick="openModal('recoverVaultModal')">
                 Passwort vergessen? Wiederherstellungsschlüssel nutzen
+              </button>
+              <button class="btn btn-secondary btn-sm" onclick="restoreMasterkeyPrompt()" style="opacity: 0.85;">
+                Masterkey aus Backup wiederherstellen
               </button>
             </div>
           </div>
