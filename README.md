@@ -177,9 +177,20 @@ cargo run --release -- put --path "/pfad/zum/tresor" --source "lokale_datei.txt"
 cargo run --release -- cat --path "/pfad/zum/tresor" --file "ordner/datei.txt"
 ```
 
-#### Datei im Tresor löschen (rm)
+#### Datei oder Ordner im Tresor löschen (rm)
 ```bash
+# Einzelne Datei löschen:
 cargo run --release -- rm --path "/pfad/zum/tresor" --file "ordner/datei.txt"
+# Verzeichnis rekursiv mit allen Inhalten löschen (-r / --recursive):
+cargo run --release -- rm --path "/pfad/zum/tresor" --file "ordner" -r
+```
+
+#### JSON-Ausgabe für Scripting & CI/CD (--json)
+Alle lesenden Befehle (`list`, `ls`, `find`, `stats`, `verify`, `recovery-key`) unterstützen das `--json` Flag für maschinenlesbare JSON-Ausgaben:
+```bash
+cargo run --release -- ls --path "/pfad/zum/tresor" --json
+cargo run --release -- stats --path "/pfad/zum/tresor" --json
+cargo run --release -- verify --path "/pfad/zum/tresor" --json
 ```
 
 #### Datei oder Ordner im Tresor verschieben / umbenennen (mv)
