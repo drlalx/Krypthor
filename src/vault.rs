@@ -886,18 +886,47 @@ pub fn export_vault(
     vault_dir: &Path,
     master_key: &[u8; 32],
     dest_dir: &Path,
+    subfolder: Option<&str>,
 ) -> Result<usize, String> {
     fs::create_dir_all(dest_dir).map_err(|e| e.to_string())?;
     let files = list_files(vault_dir, master_key)?;
     let mut exported_count = 0;
 
+    let sub_clean = subfolder
+        .map(|s| s.trim().trim_matches('/'))
+        .filter(|s| !s.is_empty());
+    let sub_prefix = sub_clean.map(|s| format!("{s}/"));
+
     for rel_path in files {
-        if rel_path.ends_with("/.keep") {
-            let parent = rel_path.trim_end_matches("/.keep");
+        let (should_export, target_rel_path) = match (&sub_clean, &sub_prefix) {
+            (Some(sub), Some(prefix)) => {
+                if let Some(stripped) = rel_path.strip_prefix(prefix) {
+                    (true, stripped.to_string())
+                } else if rel_path == *sub {
+                    let filename = Path::new(&rel_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("file");
+                    (true, filename.to_string())
+                } else {
+                    (false, String::new())
+                }
+            }
+            _ => (true, rel_path.clone()),
+        };
+
+        if !should_export {
+            continue;
+        }
+
+        if target_rel_path.ends_with("/.keep") {
+            let parent = target_rel_path.trim_end_matches("/.keep");
             let target_folder = dest_dir.join(parent);
             fs::create_dir_all(&target_folder).map_err(|e| e.to_string())?;
-        } else {
-            let dest_file_path = dest_dir.join(&rel_path);
+        } else if target_rel_path == ".keep" {
+            // Root directory marker for subfolder; already represents destination directory
+        } else if !target_rel_path.is_empty() {
+            let dest_file_path = dest_dir.join(&target_rel_path);
             if let Some(parent) = dest_file_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
@@ -957,7 +986,11 @@ pub fn import_dir(
 }
 
 #[cfg(feature = "web")]
-pub fn export_vault_zip(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<u8>, String> {
+pub fn export_vault_zip(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    subfolder: Option<&str>,
+) -> Result<Vec<u8>, String> {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
@@ -968,17 +1001,45 @@ pub fn export_vault_zip(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<u
         let options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
+        let sub_clean = subfolder
+            .map(|s| s.trim().trim_matches('/'))
+            .filter(|s| !s.is_empty());
+        let sub_prefix = sub_clean.map(|s| format!("{s}/"));
+
         for rel_path in files {
-            if rel_path.ends_with("/.keep") {
-                let parent = rel_path.trim_end_matches("/.keep");
+            let (should_export, target_rel_path) = match (&sub_clean, &sub_prefix) {
+                (Some(sub), Some(prefix)) => {
+                    if let Some(stripped) = rel_path.strip_prefix(prefix) {
+                        (true, stripped.to_string())
+                    } else if rel_path == *sub {
+                        let filename = Path::new(&rel_path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("file");
+                        (true, filename.to_string())
+                    } else {
+                        (false, String::new())
+                    }
+                }
+                _ => (true, rel_path.clone()),
+            };
+
+            if !should_export {
+                continue;
+            }
+
+            if target_rel_path.ends_with("/.keep") {
+                let parent = target_rel_path.trim_end_matches("/.keep");
                 let dir_entry = format!("{parent}/");
                 zip_writer
                     .add_directory(&dir_entry, SimpleFileOptions::default())
                     .map_err(|e| e.to_string())?;
-            } else {
+            } else if target_rel_path == ".keep" {
+                // Root directory marker for subfolder; implied by archive root
+            } else if !target_rel_path.is_empty() {
                 let content = read_file(vault_dir, master_key, &rel_path)?;
                 zip_writer
-                    .start_file(&rel_path, options)
+                    .start_file(&target_rel_path, options)
                     .map_err(|e| e.to_string())?;
                 zip_writer.write_all(&content).map_err(|e| e.to_string())?;
             }
@@ -1281,7 +1342,7 @@ mod tests {
         assert!(files.contains(&"backup/nested/folder/doc2.txt".to_string()));
 
         // 4. Export entire vault to dest_dir
-        let exported = export_vault(&test_dir, &key, &dest_dir).unwrap();
+        let exported = export_vault(&test_dir, &key, &dest_dir, None).unwrap();
         assert_eq!(exported, 2);
 
         assert_eq!(
@@ -1294,9 +1355,21 @@ mod tests {
         );
         assert!(dest_dir.join("empty_folder").is_dir());
 
+        // 5. Selective subfolder export
+        let sub_dest = std::env::temp_dir().join("cryptomator_lifecycle_sub_dest");
+        let _ = fs::remove_dir_all(&sub_dest);
+        let sub_exported = export_vault(&test_dir, &key, &sub_dest, Some("backup/nested")).unwrap();
+        assert_eq!(sub_exported, 1);
+        assert_eq!(
+            fs::read(sub_dest.join("folder/doc2.txt")).unwrap(),
+            b"Document 2 Content"
+        );
+        assert!(!sub_dest.join("backup/doc1.txt").exists());
+
         let _ = fs::remove_dir_all(&test_dir);
         let _ = fs::remove_dir_all(&src_dir);
         let _ = fs::remove_dir_all(&dest_dir);
+        let _ = fs::remove_dir_all(&sub_dest);
     }
 
     #[cfg(feature = "web")]
@@ -1312,7 +1385,7 @@ mod tests {
         create_dir(&test_dir, &key, "docs").unwrap();
         write_file(&test_dir, &key, "docs/manual.md", b"# Manual").unwrap();
 
-        let zip_bytes = export_vault_zip(&test_dir, &key).unwrap();
+        let zip_bytes = export_vault_zip(&test_dir, &key, None).unwrap();
         assert!(!zip_bytes.is_empty());
 
         // Read back with ZipArchive
@@ -1334,6 +1407,20 @@ mod tests {
             f2.read_to_end(&mut content2).unwrap();
         }
         assert_eq!(content2, b"# Manual");
+
+        // Selective subfolder zip export
+        let sub_zip_bytes = export_vault_zip(&test_dir, &key, Some("docs")).unwrap();
+        assert!(!sub_zip_bytes.is_empty());
+        let sub_cursor = std::io::Cursor::new(sub_zip_bytes);
+        let mut sub_archive = zip::ZipArchive::new(sub_cursor).unwrap();
+        assert_eq!(sub_archive.len(), 1);
+
+        let mut sub_content = Vec::new();
+        {
+            let mut sf = sub_archive.by_name("manual.md").unwrap();
+            sf.read_to_end(&mut sub_content).unwrap();
+        }
+        assert_eq!(sub_content, b"# Manual");
 
         let _ = fs::remove_dir_all(&test_dir);
     }

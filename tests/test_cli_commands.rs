@@ -386,7 +386,36 @@ fn test_cli_vault_workflow() {
     );
     assert!(export_dst.join("documents/legal").is_dir());
 
-    // 16b. Delete directory recursively via CLI (rm -r)
+    // 16b. Selective subfolder export via CLI (export --subfolder)
+    let export_sub_dst = std::env::temp_dir().join("cryptomator_cli_export_sub_target");
+    let _ = fs::remove_dir_all(&export_sub_dst);
+
+    let output = Command::new(bin_path)
+        .args([
+            "export",
+            "--path",
+            &vault_path,
+            "--dest",
+            &export_sub_dst.to_string_lossy(),
+            "--subfolder",
+            "imported/sub",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute export subfolder command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Successfully exported 1 decrypted file(s) from subfolder 'imported/sub'")
+    );
+    assert_eq!(
+        fs::read(export_sub_dst.join("b.txt")).unwrap(),
+        b"File B content"
+    );
+    assert!(!export_sub_dst.join("imported/a.txt").exists());
+
+    // 16c. Delete directory recursively via CLI (rm -r)
     let output = Command::new(bin_path)
         .args([
             "rm",
@@ -536,6 +565,7 @@ fn test_cli_vault_workflow() {
     let _ = fs::remove_file(&tmp_src);
     let _ = fs::remove_dir_all(&import_src);
     let _ = fs::remove_dir_all(&export_dst);
+    let _ = fs::remove_dir_all(&export_sub_dst);
 
     // Cleanup
     let _ = fs::remove_dir_all(&test_dir);

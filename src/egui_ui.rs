@@ -1117,7 +1117,7 @@ impl CryptomatorApp {
             if ui.button("📦 Export Vault").clicked()
                 && let Some(dest_dir) = rfd::FileDialog::new().pick_folder()
             {
-                match vault::export_vault(vault_path, &master_key, &dest_dir) {
+                match vault::export_vault(vault_path, &master_key, &dest_dir, None) {
                     Ok(count) => {
                         self.status_message = Some((
                             format!(
@@ -1753,6 +1753,9 @@ fn format_bytes_gui(bytes: u64) -> String {
 
 fn file_icon(path: &str) -> &'static str {
     let lower = path.to_lowercase();
+    if lower.ends_with("/.keep") {
+        return "📁";
+    }
     if lower.ends_with(".png")
         || lower.ends_with(".jpg")
         || lower.ends_with(".jpeg")

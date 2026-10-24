@@ -14,7 +14,7 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
   - **In-App Text-Editor**: Text- und Markdown-Dateien können direkt im Web-Interface betrachtet und bearbeitet werden.
   - **Live-Dateisuche & Tresorstatistiken**: Sofortige Volltextsuche über alle Ordner hinweg sowie Anzeige von Dateianzahl und belegtem Speicherplatz.
   - **Passwortänderung & Wiederherstellungsschlüssel**: Bequeme Passwortaktualisierung im laufenden Betrieb sowie Export und Entsperrung via 64-stelligem Recovery-Key.
-  - **ZIP-Direktexport**: Entschlüsselter Komplett-Download des Tresors als ZIP-Archiv direkt im Browser oder per REST-API (`/api/vaults/export_zip`).
+  - **ZIP-Direktexport**: Entschlüsselter Komplett-Download des Tresors oder einzelner Unterordner als ZIP-Archiv direkt im Browser oder per REST-API (`/api/vaults/export_zip?path=...&subfolder=...`).
   - **Konfigurierbares Auto-Lock**: Automatische Sperrung und sichere Speicherbereinigung entsperrter Tresore bei Inaktivität (wählbar: 5, 15, 30, 60 Minuten oder deaktiviert) mit Status-Badge.
   - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/find`, `/api/vaults/stats`, `/api/vaults/export_zip`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, `/api/vaults/backup_key`, `/api/vaults/restore_key`, etc.).
 - **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal inklusive Inaktivitäts-Auto-Lock.
@@ -208,9 +208,13 @@ cargo run --release -- stats --path "/pfad/zum/tresor"
 cargo run --release -- mkdir --path "/pfad/zum/tresor" --folder "projekte/geheim"
 ```
 
-#### Gesamten Tresor in lokales Verzeichnis exportieren (export)
+#### Tresor oder Unterordner in lokales Verzeichnis exportieren (export)
 ```bash
+# Gesamten Tresor exportieren
 cargo run --release -- export --path "/pfad/zum/tresor" --dest "/pfad/zum/zielordner"
+
+# Nur einen bestimmten Unterordner exportieren
+cargo run --release -- export --path "/pfad/zum/tresor" --dest "/pfad/zum/zielordner" --subfolder "dokumente/projekte"
 ```
 
 #### Lokales Verzeichnis rekursiv in den Tresor importieren (import)

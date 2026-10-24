@@ -800,6 +800,7 @@ fn main() {
             cli::Commands::Export {
                 path,
                 dest,
+                subfolder,
                 password,
                 keyfile,
             } => {
@@ -816,17 +817,30 @@ fn main() {
                 let path_buf = Path::new(&path);
                 let dest_buf = Path::new(&dest);
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
-                    Ok(master_key) => match vault::export_vault(path_buf, &master_key, dest_buf) {
-                        Ok(count) => {
-                            println!(
-                                "Successfully exported {count} decrypted file(s) to '{dest}'."
-                            );
+                    Ok(master_key) => {
+                        match vault::export_vault(
+                            path_buf,
+                            &master_key,
+                            dest_buf,
+                            subfolder.as_deref(),
+                        ) {
+                            Ok(count) => {
+                                if let Some(ref sub) = subfolder {
+                                    println!(
+                                        "Successfully exported {count} decrypted file(s) from subfolder '{sub}' to '{dest}'."
+                                    );
+                                } else {
+                                    println!(
+                                        "Successfully exported {count} decrypted file(s) to '{dest}'."
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Error exporting vault: {e}");
+                                std::process::exit(1);
+                            }
                         }
-                        Err(e) => {
-                            eprintln!("Error exporting vault: {e}");
-                            std::process::exit(1);
-                        }
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Unlock failed: {e}");
                         std::process::exit(1);

@@ -272,7 +272,7 @@ pub enum Commands {
         #[arg(short, long)]
         keyfile: Option<String>,
     },
-    /// Export and decrypt the entire vault into a local directory
+    /// Export and decrypt the entire vault (or a subfolder) into a local directory
     Export {
         /// Path to the vault folder containing masterkey.json
         #[arg(short, long)]
@@ -280,6 +280,9 @@ pub enum Commands {
         /// Target destination directory to write decrypted files
         #[arg(short, long)]
         dest: String,
+        /// Optional subfolder inside the vault to export (instead of entire vault)
+        #[arg(short = 's', long)]
+        subfolder: Option<String>,
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,

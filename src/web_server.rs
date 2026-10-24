@@ -99,6 +99,12 @@ pub struct FilesQuery {
 }
 
 #[derive(Deserialize)]
+pub struct ExportZipQuery {
+    pub path: String,
+    pub subfolder: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub struct FindQuery {
     pub path: String,
     pub q: String,
@@ -478,7 +484,7 @@ async fn download_file_handler(
 
 async fn export_zip_handler(
     State(state): State<Arc<AppState>>,
-    Query(query): Query<FilesQuery>,
+    Query(query): Query<ExportZipQuery>,
 ) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
     let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
         (
@@ -490,18 +496,27 @@ async fn export_zip_handler(
     })?;
 
     let vault_path = Path::new(&query.path);
-    let zip_bytes = vault::export_vault_zip(vault_path, &master_key).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e }),
-        )
-    })?;
+    let subfolder_ref = query.subfolder.as_deref().filter(|s| !s.trim().is_empty());
+    let zip_bytes =
+        vault::export_vault_zip(vault_path, &master_key, subfolder_ref).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
 
     let vault_name = vault_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("vault");
-    let disposition = format!("attachment; filename=\"{vault_name}_export.zip\"");
+    let sub_suffix = match subfolder_ref {
+        Some(s) => {
+            let clean = s.trim_matches('/').replace('/', "_");
+            format!("_{clean}")
+        }
+        None => String::new(),
+    };
+    let disposition = format!("attachment; filename=\"{vault_name}{sub_suffix}_export.zip\"");
 
     let mut response = Response::new(Body::from(zip_bytes));
     let headers = response.headers_mut();
@@ -1412,6 +1427,27 @@ mod tests {
             .await
             .unwrap();
         assert!(!zip_bytes.is_empty());
+
+        // 10b. Export subfolder ZIP via API
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/vaults/export_zip?path={}&subfolder=folder",
+                        temp_dir.to_string_lossy()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let sub_zip_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(!sub_zip_bytes.is_empty());
 
         // 11. Verify vault integrity via API
         let res = router

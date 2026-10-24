@@ -994,7 +994,8 @@
 
     function downloadVaultZip() {
       if (!selectedVault || !selectedVault.is_unlocked) return;
-      window.location.href = `/api/vaults/export_zip?path=${encodeURIComponent(selectedVault.path)}`;
+      const sub = currentPath ? `&subfolder=${encodeURIComponent(currentPath)}` : '';
+      window.location.href = `/api/vaults/export_zip?path=${encodeURIComponent(selectedVault.path)}${sub}`;
     }
 
     async function checkVaultIntegrity() {
@@ -1569,6 +1570,14 @@
                     <td style="color: var(--text-muted); font-size: 0.8rem;">—</td>
                     <td>
                       <div class="file-actions" onclick="event.stopPropagation()">
+                        <a href="/api/vaults/export_zip?path=${encodeURIComponent(selectedVault.path)}&subfolder=${encodeURIComponent(targetPath)}" class="btn btn-secondary btn-sm" download title="Ordner als ZIP herunterladen">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="21 8 21 21 3 21 3 8"></polyline>
+                            <rect x="1" y="3" width="22" height="5"></rect>
+                            <line x1="10" y1="12" x2="14" y2="12"></line>
+                          </svg>
+                          ZIP
+                        </a>
                         <button class="btn btn-secondary btn-sm" onclick="handleRenamePrompt('${escapeHtml(targetPath)}')">
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
