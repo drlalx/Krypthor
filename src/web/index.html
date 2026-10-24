@@ -522,7 +522,13 @@
         </svg>
         Neuer Tresor / Hinzufügen
       </button>
-      <div style="font-size: 0.72rem; color: var(--text-muted); text-align: center;">
+      <button class="btn btn-secondary btn-sm" onclick="openSystemDoctorModal()" style="margin-top: 6px; width: 100%;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+        </svg>
+        Systemdiagnose & Benchmark
+      </button>
+      <div style="font-size: 0.72rem; color: var(--text-muted); text-align: center; margin-top: 4px;">
         Syncthing-Style Daemon • 127.0.0.1
       </div>
     </div>
@@ -843,6 +849,25 @@
     </div>
   </div>
 
+  <!-- System Diagnostics & Benchmark Modal -->
+  <div class="modal-backdrop" id="systemDoctorModal">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-header">
+        <div class="modal-title">🩺 Systemdiagnose & Performance-Benchmark</div>
+        <button class="modal-close" onclick="closeModal('systemDoctorModal')">&times;</button>
+      </div>
+      <div id="systemDoctorBody" style="padding: 10px 0;">
+        <div style="text-align: center; color: var(--text-muted); padding: 20px;">
+          Führe Diagnose und Krypto-Benchmark aus...
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-secondary" onclick="runSystemDoctor()">Erneut ausführen</button>
+        <button class="btn btn-primary" onclick="closeModal('systemDoctorModal')">Schließen</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Container -->
   <div class="toast-container" id="toastContainer"></div>
 
@@ -1047,6 +1072,64 @@
         }
       } catch (err) {
         box.innerHTML = `<div style="color: var(--danger); padding: 10px;">Fehler bei der Prüfung: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function openSystemDoctorModal() {
+      openModal("systemDoctorModal");
+      await runSystemDoctor();
+    }
+
+    async function runSystemDoctor() {
+      const box = document.getElementById("systemDoctorBody");
+      box.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 25px;">⚡ Prüfe Systemumgebung und messe kryptografischen Durchsatz...</div>`;
+
+      try {
+        const [docRes, benchRes] = await Promise.all([
+          fetch("/api/system/doctor").then(r => r.json()),
+          fetch("/api/system/benchmark").then(r => r.json())
+        ]);
+
+        let html = `
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 20px;">
+            <div style="background: var(--bg-surface); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border); text-align: center;">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">AES-GCM Encrypt</div>
+              <div style="font-size: 1.25rem; font-weight: 700; color: var(--success); margin-top: 4px;">${benchRes.aes_gcm_encrypt_mb_per_sec} <span style="font-size: 0.75rem;">MB/s</span></div>
+            </div>
+            <div style="background: var(--bg-surface); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border); text-align: center;">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">AES-GCM Decrypt</div>
+              <div style="font-size: 1.25rem; font-weight: 700; color: var(--success); margin-top: 4px;">${benchRes.aes_gcm_decrypt_mb_per_sec} <span style="font-size: 0.75rem;">MB/s</span></div>
+            </div>
+            <div style="background: var(--bg-surface); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border); text-align: center;">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Scrypt Ableitung</div>
+              <div style="font-size: 1.25rem; font-weight: 700; color: var(--primary); margin-top: 4px;">${benchRes.scrypt_derivations_per_sec} <span style="font-size: 0.75rem;">ops/s</span></div>
+            </div>
+            <div style="background: var(--bg-surface); padding: 12px; border-radius: var(--radius); border: 1px solid var(--border); text-align: center;">
+              <div style="font-size: 0.75rem; color: var(--text-muted);">SHA-256 Hashes</div>
+              <div style="font-size: 1.25rem; font-weight: 700; color: #8b5cf6; margin-top: 4px;">${Math.round(benchRes.sha256_hashes_per_sec / 1000)}k <span style="font-size: 0.75rem;">/s</span></div>
+            </div>
+          </div>
+
+          <h4 style="margin-bottom: 10px; font-size: 0.9rem; color: var(--text);">Umgebungsprüfungen (${docRes.checks.length}):</h4>
+          <div style="display: flex; flex-direction: column; gap: 8px; max-height: 240px; overflow-y: auto;">
+            ${docRes.checks.map(c => {
+              const color = c.status === "ok" ? "var(--success)" : (c.status === "warning" ? "#f59e0b" : "var(--danger)");
+              const icon = c.status === "ok" ? "✓" : (c.status === "warning" ? "!" : "✕");
+              return `
+                <div style="display: flex; gap: 10px; align-items: flex-start; background: var(--bg-surface); padding: 8px 12px; border-radius: var(--radius); border-left: 3px solid ${color};">
+                  <div style="font-weight: bold; color: ${color}; width: 16px;">${icon}</div>
+                  <div style="flex: 1;">
+                    <div style="font-weight: 600; font-size: 0.85rem;">[${escapeHtml(c.category)}] ${escapeHtml(c.name)}</div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">${escapeHtml(c.message)}</div>
+                  </div>
+                </div>
+              `;
+            }).join("")}
+          </div>
+        `;
+        box.innerHTML = html;
+      } catch (err) {
+        box.innerHTML = `<div style="color: var(--danger); padding: 15px;">Fehler beim Ausführen der Diagnose: ${escapeHtml(err.message)}</div>`;
       }
     }
 

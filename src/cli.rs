@@ -341,4 +341,16 @@ pub enum Commands {
         #[arg(short, long)]
         from: Option<String>,
     },
+    /// Benchmark cryptographic primitives (Scrypt key derivation, AES-256-GCM, SHA-256)
+    Benchmark {
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Perform environment and vault health diagnostics
+    Doctor {
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }

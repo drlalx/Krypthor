@@ -991,6 +991,77 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Benchmark { json } => {
+                let bench = vault::run_benchmark();
+                if json {
+                    match serde_json::to_string_pretty(&bench) {
+                        Ok(json_str) => println!("{json_str}"),
+                        Err(e) => {
+                            eprintln!("Error formatting JSON: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    println!("⚡ Running Cryptographic Performance Benchmark...\n");
+                    println!(
+                        "  • Scrypt (Key Derivation):    {:.1} ops/s  ({:.1} ms/op)",
+                        bench.scrypt_derivations_per_sec, bench.scrypt_duration_ms
+                    );
+                    println!(
+                        "  • AES-256-GCM Encryption:     {:.1} MB/s",
+                        bench.aes_gcm_encrypt_mb_per_sec
+                    );
+                    println!(
+                        "  • AES-256-GCM Decryption:     {:.1} MB/s",
+                        bench.aes_gcm_decrypt_mb_per_sec
+                    );
+                    println!(
+                        "  • SHA-256 (Path Obfuscation): {:.0} hashes/s\n",
+                        bench.sha256_hashes_per_sec
+                    );
+                    println!("Total benchmark elapsed: {:.1} ms", bench.total_duration_ms);
+                }
+                return;
+            }
+            cli::Commands::Doctor { json } => {
+                let saved = load_saved_vaults();
+                let vault_paths: Vec<String> = saved.into_iter().map(|v| v.path).collect();
+                let report = vault::run_doctor(&vault_paths);
+
+                if json {
+                    match serde_json::to_string_pretty(&report) {
+                        Ok(json_str) => println!("{json_str}"),
+                        Err(e) => {
+                            eprintln!("Error formatting JSON: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                } else {
+                    println!("🩺 Running Environment & System Diagnostics...\n");
+                    for check in &report.checks {
+                        let status_tag = match check.status.as_str() {
+                            "ok" => "[OK]     ",
+                            "warning" => "[WARN]   ",
+                            _ => "[ERROR]  ",
+                        };
+                        println!("{status_tag} {}: {}", check.category, check.name);
+                        println!("          {}\n", check.message);
+                    }
+                    if report.is_healthy {
+                        println!(
+                            "Status: All system checks passed healthy ({} vault(s) checked).",
+                            report.vaults_checked
+                        );
+                    } else {
+                        eprintln!(
+                            "Status: Potential issues detected ({} vault(s) checked).",
+                            report.vaults_checked
+                        );
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 

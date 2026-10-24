@@ -16,12 +16,12 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
   - **Passwortänderung & Wiederherstellungsschlüssel**: Bequeme Passwortaktualisierung im laufenden Betrieb sowie Export und Entsperrung via 64-stelligem Recovery-Key.
   - **ZIP-Direktexport**: Entschlüsselter Komplett-Download des Tresors oder einzelner Unterordner als ZIP-Archiv direkt im Browser oder per REST-API (`/api/vaults/export_zip?path=...&subfolder=...`).
   - **Konfigurierbares Auto-Lock**: Automatische Sperrung und sichere Speicherbereinigung entsperrter Tresore bei Inaktivität (wählbar: 5, 15, 30, 60 Minuten oder deaktiviert) mit Status-Badge.
-  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/find`, `/api/vaults/stats`, `/api/vaults/export_zip`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, `/api/vaults/backup_key`, `/api/vaults/restore_key`, etc.).
+  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/find`, `/api/vaults/stats`, `/api/vaults/export_zip`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, `/api/vaults/backup_key`, `/api/vaults/restore_key`, `/api/system/benchmark`, `/api/system/doctor`, etc.).
 - **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal inklusive Inaktivitäts-Auto-Lock.
 - **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via Pure-Rust FUSE (ohne C `libfuse`-Bindung).
 - **Streaming I/O**: Direkte Stream-Verarbeitung (Reader/Writer) für `put`, `cat`, `import` und `export` zur Minimierung der RAM-Auslastung bei großen Datenmengen.
 - **Katastrophenschutz & Resilienz**: Atomare Schreibvorgänge via PID-Temporärdateien (`fs::rename`) sowie automatische Pflege von `masterkey.json.bkup` mit transparentem Fallback-Entsperren.
-- **CLI-Befehle**: Vollwertige Steuerung ohne GUI über 17 Subcommands (`create`, `mount`, `ls`, `find`, `put`, `cat`, `rm`, `mv`, `stats`, `mkdir`, `export`, `import`, `verify`, `backup-key`, `restore-key`, `tui`, `serve`).
+- **CLI-Befehle**: Vollwertige Steuerung ohne GUI über 19 Subcommands (`create`, `mount`, `ls`, `find`, `put`, `cat`, `rm`, `mv`, `stats`, `mkdir`, `export`, `import`, `verify`, `backup-key`, `restore-key`, `benchmark`, `doctor`, `tui`, `serve`).
 - **Sicherheitsarchitektur**:
   - **Schlüsselableitung**: Scrypt (N=16384, r=8, p=1) mit optionaler Unterstützung für Schlüsseldateien (Keyfiles).
   - **Dateiverschlüsselung**: Authenticated Encryption mit AES-256-GCM. Jede Datei enthält einen zufälligen 12-Byte-Nonce und verschlüsselte Pfadmetadaten.
@@ -242,6 +242,22 @@ Stellt die `masterkey.json` aus der automatischen `masterkey.json.bkup` oder ein
 cargo run --release -- restore-key --path "/pfad/zum/tresor"
 # Oder aus bestimmter Datei:
 cargo run --release -- restore-key --path "/pfad/zum/tresor" --from "/backup/tresor_key.json"
+```
+
+#### Kryptografischen Performance-Benchmark ausführen (benchmark)
+Misst den realen Durchsatz der kryptografischen Primitive (Scrypt KDF, AES-256-GCM Ver-/Entschlüsselung in MB/s und SHA-256 Pfad-Obfuskation):
+```bash
+cargo run --release -- benchmark
+# Maschinenlesbare Ausgabe als JSON:
+cargo run --release -- benchmark --json
+```
+
+#### Systemumgebung und Tresor-Gesundheit prüfen (doctor)
+Prüft das Dateisystem, FUSE-Rechte (`/dev/fuse`), CSPRNG-Zufallsgeneratoren sowie die Integrität aller registrierten Tresore:
+```bash
+cargo run --release -- doctor
+# Maschinenlesbare Ausgabe als JSON:
+cargo run --release -- doctor --json
 ```
 
 ## Projektstruktur

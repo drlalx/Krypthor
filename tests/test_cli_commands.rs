@@ -557,6 +557,45 @@ fn test_cli_vault_workflow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Status:           HEALTHY"));
 
+    // 26. Benchmark command (standard and --json)
+    let output = Command::new(bin_path)
+        .args(["benchmark"])
+        .output()
+        .expect("Failed to execute benchmark command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Running Cryptographic Performance Benchmark"));
+    assert!(stdout.contains("Scrypt"));
+    assert!(stdout.contains("AES-256-GCM"));
+
+    let output = Command::new(bin_path)
+        .args(["benchmark", "--json"])
+        .output()
+        .expect("Failed to execute benchmark --json command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"scrypt_derivations_per_sec\""));
+    assert!(stdout.contains("\"aes_gcm_encrypt_mb_per_sec\""));
+
+    // 27. Doctor command (standard and --json)
+    let output = Command::new(bin_path)
+        .args(["doctor"])
+        .output()
+        .expect("Failed to execute doctor command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Running Environment & System Diagnostics"));
+    assert!(stdout.contains("Crypto: Entropy Source"));
+
+    let output = Command::new(bin_path)
+        .args(["doctor", "--json"])
+        .output()
+        .expect("Failed to execute doctor --json command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"is_healthy\""));
+    assert!(stdout.contains("\"checks\""));
+
     // Cleanup vault from vaults.json
     let _ = Command::new(bin_path)
         .args(["remove", "--path", &vault_path])

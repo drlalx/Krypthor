@@ -1049,6 +1049,274 @@ pub fn export_vault_zip(
     Ok(cursor.into_inner())
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchmarkResult {
+    pub scrypt_derivations_per_sec: f64,
+    pub scrypt_duration_ms: f64,
+    pub aes_gcm_encrypt_mb_per_sec: f64,
+    pub aes_gcm_decrypt_mb_per_sec: f64,
+    pub sha256_hashes_per_sec: f64,
+    pub total_duration_ms: f64,
+}
+
+pub fn run_benchmark() -> BenchmarkResult {
+    use std::time::Instant;
+    let start_total = Instant::now();
+
+    // 1. Scrypt key derivation benchmark (3 iterations)
+    let password = b"BenchmarkSuperSecretPassphrase123!";
+    let salt = [42u8; 32];
+    let mut derived = [0u8; 32];
+    let scrypt_params = Params::new(14, 8, 1, 32).unwrap_or_else(|_| Params::recommended());
+    let scrypt_iters = 3;
+    let start_scrypt = Instant::now();
+    for _ in 0..scrypt_iters {
+        let _ = scrypt(password, &salt, &scrypt_params, &mut derived);
+    }
+    let scrypt_dur = start_scrypt.elapsed();
+    let scrypt_secs = scrypt_dur.as_secs_f64().max(0.000001);
+    let scrypt_ms = scrypt_secs * 1000.0;
+    let scrypt_per_sec = (scrypt_iters as f64) / scrypt_secs;
+
+    // 2. AES-256-GCM benchmark (encrypt & decrypt 10 MB payload)
+    let master_key = [7u8; 32];
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&master_key));
+    let payload_size = 10 * 1024 * 1024; // 10 MB
+    let test_data = vec![0xABu8; payload_size];
+    let nonce_bytes = [1u8; 12];
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    let start_enc = Instant::now();
+    let encrypted = cipher
+        .encrypt(nonce, test_data.as_ref())
+        .unwrap_or_default();
+    let enc_dur = start_enc.elapsed();
+    let enc_secs = enc_dur.as_secs_f64().max(0.000001);
+    let enc_mb_per_sec = (payload_size as f64 / (1024.0 * 1024.0)) / enc_secs;
+
+    let start_dec = Instant::now();
+    let _decrypted = cipher
+        .decrypt(nonce, encrypted.as_ref())
+        .unwrap_or_default();
+    let dec_dur = start_dec.elapsed();
+    let dec_secs = dec_dur.as_secs_f64().max(0.000001);
+    let dec_mb_per_sec = (payload_size as f64 / (1024.0 * 1024.0)) / dec_secs;
+
+    // 3. SHA-256 obfuscation hash benchmark (50,000 hashes)
+    let sha_iters = 50_000;
+    let start_sha = Instant::now();
+    for i in 0..sha_iters {
+        let mut hasher = Sha256::new();
+        hasher.update(master_key);
+        hasher.update(b"/documents/work/report_");
+        hasher.update(i.to_string().as_bytes());
+        let _ = hasher.finalize();
+    }
+    let sha_dur = start_sha.elapsed();
+    let sha_secs = sha_dur.as_secs_f64().max(0.000001);
+    let sha_per_sec = (sha_iters as f64) / sha_secs;
+
+    let total_duration_ms = start_total.elapsed().as_secs_f64() * 1000.0;
+
+    BenchmarkResult {
+        scrypt_derivations_per_sec: (scrypt_per_sec * 10.0).round() / 10.0,
+        scrypt_duration_ms: (scrypt_ms / (scrypt_iters as f64) * 10.0).round() / 10.0,
+        aes_gcm_encrypt_mb_per_sec: (enc_mb_per_sec * 10.0).round() / 10.0,
+        aes_gcm_decrypt_mb_per_sec: (dec_mb_per_sec * 10.0).round() / 10.0,
+        sha256_hashes_per_sec: sha_per_sec.round(),
+        total_duration_ms: (total_duration_ms * 10.0).round() / 10.0,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorCheck {
+    pub category: String,
+    pub name: String,
+    pub status: String, // "ok", "warning", "error"
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DoctorReport {
+    pub is_healthy: bool,
+    pub checks: Vec<DoctorCheck>,
+    pub vaults_checked: usize,
+}
+
+pub fn run_doctor(vault_paths: &[String]) -> DoctorReport {
+    let mut checks = Vec::new();
+    let mut is_healthy = true;
+
+    // 1. FUSE interface check
+    let fuse_dev = Path::new("/dev/fuse");
+    if fuse_dev.exists() {
+        match fs::OpenOptions::new().read(true).write(true).open(fuse_dev) {
+            Ok(_) => {
+                checks.push(DoctorCheck {
+                    category: "FUSE".into(),
+                    name: "/dev/fuse Device".into(),
+                    status: "ok".into(),
+                    message: "FUSE kernel interface accessible with read/write permissions.".into(),
+                });
+            }
+            Err(e) => {
+                checks.push(DoctorCheck {
+                    category: "FUSE".into(),
+                    name: "/dev/fuse Device".into(),
+                    status: "warning".into(),
+                    message: format!(
+                        "Interface exists but cannot open read/write: {e}. Mounting requires appropriate user group/permissions."
+                    ),
+                });
+            }
+        }
+    } else {
+        checks.push(DoctorCheck {
+            category: "FUSE".into(),
+            name: "/dev/fuse Device".into(),
+            status: "warning".into(),
+            message:
+                "Not found. Direct filesystem mount is disabled; Web, CLI and GUI remain active."
+                    .into(),
+        });
+    }
+
+    // 2. Temp Directory write test
+    let temp_dir = std::env::temp_dir();
+    let test_file = temp_dir.join(format!("cryptomator_probe_{}.tmp", std::process::id()));
+    match fs::write(&test_file, b"probe") {
+        Ok(_) => {
+            let _ = fs::remove_file(&test_file);
+            checks.push(DoctorCheck {
+                category: "System".into(),
+                name: "Temporary Storage".into(),
+                status: "ok".into(),
+                message: format!("Temp directory '{}' is writable.", temp_dir.display()),
+            });
+        }
+        Err(e) => {
+            is_healthy = false;
+            checks.push(DoctorCheck {
+                category: "System".into(),
+                name: "Temporary Storage".into(),
+                status: "error".into(),
+                message: format!(
+                    "Temp directory '{}' is not writable: {e}",
+                    temp_dir.display()
+                ),
+            });
+        }
+    }
+
+    // 3. CSPRNG Entropy check
+    let mut test_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut test_bytes);
+    if test_bytes.iter().all(|&b| b == 0) {
+        is_healthy = false;
+        checks.push(DoctorCheck {
+            category: "Crypto".into(),
+            name: "Entropy Source (CSPRNG)".into(),
+            status: "error".into(),
+            message: "CSPRNG returned all zeros.".into(),
+        });
+    } else {
+        checks.push(DoctorCheck {
+            category: "Crypto".into(),
+            name: "Entropy Source (CSPRNG)".into(),
+            status: "ok".into(),
+            message: "Cryptographic entropy generator operational.".into(),
+        });
+    }
+
+    // 4. Registered vaults diagnostics
+    for vp in vault_paths {
+        let p = Path::new(vp);
+        if !p.exists() {
+            is_healthy = false;
+            checks.push(DoctorCheck {
+                category: "Vault".into(),
+                name: format!("Vault: {}", p.display()),
+                status: "error".into(),
+                message: "Vault directory does not exist on disk.".into(),
+            });
+            continue;
+        }
+
+        let mk_path = p.join("masterkey.json");
+        if !mk_path.exists() {
+            is_healthy = false;
+            checks.push(DoctorCheck {
+                category: "Vault".into(),
+                name: format!("Vault: {}", p.display()),
+                status: "error".into(),
+                message: "masterkey.json is missing!".into(),
+            });
+        } else {
+            match fs::read_to_string(&mk_path) {
+                Ok(content) => match serde_json::from_str::<MasterKeyFile>(&content) {
+                    Ok(_) => {
+                        let has_bkup = p.join("masterkey.json.bkup").exists();
+                        let d_dir = p.join("d");
+                        let has_d = d_dir.is_dir();
+
+                        if !has_d {
+                            is_healthy = false;
+                            checks.push(DoctorCheck {
+                                category: "Vault".into(),
+                                name: format!("Vault: {}", p.display()),
+                                status: "error".into(),
+                                message: "Ciphertext folder 'd' is missing!".into(),
+                            });
+                        } else if !has_bkup {
+                            checks.push(DoctorCheck {
+                                category: "Vault".into(),
+                                name: format!("Vault: {}", p.display()),
+                                status: "warning".into(),
+                                message:
+                                    "Valid masterkey.json and 'd' folder, but masterkey.json.bkup is missing."
+                                        .into(),
+                            });
+                        } else {
+                            checks.push(DoctorCheck {
+                                category: "Vault".into(),
+                                name: format!("Vault: {}", p.display()),
+                                status: "ok".into(),
+                                message:
+                                    "Vault layout valid (masterkey.json, masterkey.json.bkup, and 'd' present)."
+                                        .into(),
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        is_healthy = false;
+                        checks.push(DoctorCheck {
+                            category: "Vault".into(),
+                            name: format!("Vault: {}", p.display()),
+                            status: "error".into(),
+                            message: format!("masterkey.json is malformed: {e}"),
+                        });
+                    }
+                },
+                Err(e) => {
+                    is_healthy = false;
+                    checks.push(DoctorCheck {
+                        category: "Vault".into(),
+                        name: format!("Vault: {}", p.display()),
+                        status: "error".into(),
+                        message: format!("Cannot read masterkey.json: {e}"),
+                    });
+                }
+            }
+        }
+    }
+
+    DoctorReport {
+        is_healthy,
+        checks,
+        vaults_checked: vault_paths.len(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -1616,6 +1884,36 @@ mod tests {
         let files_after = list_files(&test_dir, &key).unwrap();
         assert_eq!(files_after.len(), 1);
         assert_eq!(files_after[0], "other.txt");
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_benchmark_and_doctor() {
+        let bench = run_benchmark();
+        assert!(bench.scrypt_derivations_per_sec > 0.0);
+        assert!(bench.aes_gcm_encrypt_mb_per_sec > 0.0);
+        assert!(bench.aes_gcm_decrypt_mb_per_sec > 0.0);
+        assert!(bench.sha256_hashes_per_sec > 0.0);
+
+        let test_dir = std::env::temp_dir().join("cryptomator_doctor_test");
+        let _ = fs::remove_dir_all(&test_dir);
+        create_vault(&test_dir, "doc_pw", None).unwrap();
+
+        let paths = vec![
+            test_dir.to_string_lossy().to_string(),
+            "/non/existent/vault_path".to_string(),
+        ];
+        let report = run_doctor(&paths);
+        assert_eq!(report.vaults_checked, 2);
+        assert!(!report.is_healthy); // One non-existent vault causes false
+        assert!(report.checks.iter().any(|c| c.category == "FUSE"));
+        assert!(report.checks.iter().any(|c| c.category == "System"));
+        assert!(report.checks.iter().any(|c| c.category == "Crypto"));
+
+        // With only healthy vault:
+        let report_good = run_doctor(&[test_dir.to_string_lossy().to_string()]);
+        assert!(report_good.is_healthy);
 
         let _ = fs::remove_dir_all(&test_dir);
     }

@@ -934,10 +934,28 @@ async fn restore_key_handler(
     }))
 }
 
+async fn system_benchmark_handler() -> Json<vault::BenchmarkResult> {
+    tokio::task::spawn_blocking(vault::run_benchmark)
+        .await
+        .map(Json)
+        .unwrap_or_else(|_| Json(vault::run_benchmark()))
+}
+
+async fn system_doctor_handler() -> Json<vault::DoctorReport> {
+    let saved = crate::load_saved_vaults();
+    let paths: Vec<String> = saved.into_iter().map(|v| v.path).collect();
+    tokio::task::spawn_blocking(move || vault::run_doctor(&paths))
+        .await
+        .map(Json)
+        .unwrap_or_else(|_| Json(vault::run_doctor(&[])))
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index_handler))
         .route("/api/status", get(status_handler))
+        .route("/api/system/benchmark", get(system_benchmark_handler))
+        .route("/api/system/doctor", get(system_doctor_handler))
         .route(
             "/api/vaults",
             get(list_vaults_handler).post(create_or_register_vault_handler),
@@ -1471,6 +1489,45 @@ mod tests {
         let report: vault::IntegrityReport = serde_json::from_slice(&verify_body).unwrap();
         assert!(report.is_healthy);
         assert_eq!(report.corrupted_files.len(), 0);
+
+        // 12. System benchmark via API
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/system/benchmark")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let bench_body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let bench_res: vault::BenchmarkResult = serde_json::from_slice(&bench_body).unwrap();
+        assert!(bench_res.scrypt_derivations_per_sec > 0.0);
+        assert!(bench_res.aes_gcm_encrypt_mb_per_sec > 0.0);
+
+        // 13. System doctor via API
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri("/api/system/doctor")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let doc_body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let doc_res: vault::DoctorReport = serde_json::from_slice(&doc_body).unwrap();
+        assert!(doc_res.checks.len() >= 3);
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
