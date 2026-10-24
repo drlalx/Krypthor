@@ -96,6 +96,16 @@ struct CryptomatorApp {
     rename_vault_modal_open: bool,
     rename_vault_new_name: String,
 
+    // Copy modal
+    copy_modal_open: bool,
+    copy_target: String,
+    copy_new_name: String,
+
+    // System Doctor & Benchmark modal
+    doctor_modal_open: bool,
+    doctor_report: Option<vault::DoctorReport>,
+    benchmark_result: Option<vault::BenchmarkResult>,
+
     // File preview modal
     preview_modal_open: bool,
     preview_file_name: String,
@@ -182,6 +192,14 @@ impl CryptomatorApp {
 
             rename_vault_modal_open: false,
             rename_vault_new_name: String::new(),
+
+            copy_modal_open: false,
+            copy_target: String::new(),
+            copy_new_name: String::new(),
+
+            doctor_modal_open: false,
+            doctor_report: None,
+            benchmark_result: None,
 
             preview_modal_open: false,
             preview_file_name: String::new(),
@@ -380,6 +398,85 @@ impl eframe::App for CryptomatorApp {
                 );
             });
         });
+
+        if self.doctor_modal_open {
+            egui::Window::new("🩺 Systemdiagnose & Performance Benchmark")
+                .collapsible(false)
+                .resizable(true)
+                .default_width(520.0)
+                .show(ui.ctx(), |ui| {
+                    if let Some(ref bench) = self.benchmark_result {
+                        Card::new()
+                            .heading("⚡ Cryptographic Benchmark")
+                            .show(ui, |ui| {
+                                ui.label(format!(
+                                    "• Scrypt KDF:           {:.1} ops/s  ({:.1} ms/op)",
+                                    bench.scrypt_derivations_per_sec, bench.scrypt_duration_ms
+                                ));
+                                ui.label(format!(
+                                    "• AES-256-GCM Encrypt:  {:.1} MB/s",
+                                    bench.aes_gcm_encrypt_mb_per_sec
+                                ));
+                                ui.label(format!(
+                                    "• AES-256-GCM Decrypt:  {:.1} MB/s",
+                                    bench.aes_gcm_decrypt_mb_per_sec
+                                ));
+                                ui.label(format!(
+                                    "• SHA-256 Obfuscation:  {:.0} hashes/s",
+                                    bench.sha256_hashes_per_sec
+                                ));
+                            });
+                        ui.add_space(8.0);
+                    }
+
+                    if let Some(ref doc) = self.doctor_report {
+                        Card::new()
+                            .heading(format!("🩺 Diagnostics ({} checks)", doc.checks.len()))
+                            .show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .max_height(240.0)
+                                    .show(ui, |ui| {
+                                        for check in &doc.checks {
+                                            let (tag, color) = match check.status.as_str() {
+                                                "ok" => ("✓", Color32::from_rgb(50, 200, 100)),
+                                                "warning" => ("!", Color32::from_rgb(250, 180, 50)),
+                                                _ => ("✕", Color32::from_rgb(240, 70, 70)),
+                                            };
+                                            ui.horizontal(|ui| {
+                                                ui.label(RichText::new(tag).color(color).strong());
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "[{}] {}",
+                                                        check.category, check.name
+                                                    ))
+                                                    .strong(),
+                                                );
+                                            });
+                                            ui.label(
+                                                RichText::new(&check.message)
+                                                    .size(11.0)
+                                                    .color(Color32::from_rgb(160, 170, 190)),
+                                            );
+                                            ui.separator();
+                                        }
+                                    });
+                            });
+                        ui.add_space(8.0);
+                    }
+
+                    ui.horizontal(|ui| {
+                        if ui.button("🔄 Rerun Benchmark & Doctor").clicked() {
+                            let vault_paths: Vec<String> =
+                                self.saved_vaults.iter().map(|v| v.path.clone()).collect();
+                            self.doctor_report = Some(vault::run_doctor(&vault_paths));
+                            self.benchmark_result = Some(vault::run_benchmark());
+                        }
+                        if ui.button("Close").clicked() {
+                            self.doctor_modal_open = false;
+                        }
+                    });
+                });
+        }
     }
 }
 
@@ -602,6 +699,16 @@ impl CryptomatorApp {
                         }
                     });
                 });
+            }
+
+            ui.separator();
+            ui.add_space(4.0);
+            if ui.button("🩺 System Doctor & Benchmark").clicked() {
+                self.doctor_modal_open = true;
+                let vault_paths: Vec<String> =
+                    self.saved_vaults.iter().map(|v| v.path.clone()).collect();
+                self.doctor_report = Some(vault::run_doctor(&vault_paths));
+                self.benchmark_result = Some(vault::run_benchmark());
             }
         });
     }
@@ -1281,6 +1388,45 @@ impl CryptomatorApp {
             ui.add_space(10.0);
         }
 
+        if self.copy_modal_open {
+            Card::new().heading("Copy File").show(ui, |ui| {
+                ui.label(format!("Source path: {}", self.copy_target));
+                ui.label("Destination name / relative path:");
+                ui.text_edit_singleline(&mut self.copy_new_name);
+                ui.horizontal(|ui| {
+                    if ui.button("📋 Copy").clicked() {
+                        let dst_name = self.copy_new_name.trim().to_string();
+                        if !dst_name.is_empty() && dst_name != self.copy_target {
+                            match vault::copy_file(
+                                vault_path,
+                                &master_key,
+                                &self.copy_target,
+                                &dst_name,
+                            ) {
+                                Ok(_) => {
+                                    let src_name = self.copy_target.clone();
+                                    self.copy_modal_open = false;
+                                    self.refresh_vault_files();
+                                    self.status_message = Some((
+                                        format!("Copied '{src_name}' to '{dst_name}'."),
+                                        false,
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Error copying file: {e}"), true));
+                                }
+                            }
+                        }
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.copy_modal_open = false;
+                    }
+                });
+            });
+            ui.add_space(10.0);
+        }
+
         if self.change_pw_modal_open {
             Card::new().heading("Change Vault Password").show(ui, |ui| {
                 ui.label("Current Password:");
@@ -1460,6 +1606,7 @@ impl CryptomatorApp {
                 let mut file_to_export = None;
                 let mut file_to_delete = None;
                 let mut file_to_rename = None;
+                let mut file_to_copy = None;
                 let mut file_to_preview = None;
 
                 for file in files_to_display {
@@ -1488,6 +1635,9 @@ impl CryptomatorApp {
                             }
                             if ui.button("✏ Rename").clicked() {
                                 file_to_rename = Some(file.path.clone());
+                            }
+                            if ui.button("📋 Copy").clicked() {
+                                file_to_copy = Some(file.path.clone());
                             }
                             if ui.button("💾 Export").clicked() {
                                 file_to_export = Some(file.path.clone());
@@ -1521,6 +1671,18 @@ impl CryptomatorApp {
                     self.rename_modal_open = true;
                     self.rename_target = target.clone();
                     self.rename_new_name = target;
+                }
+
+                if let Some(target) = file_to_copy {
+                    self.copy_modal_open = true;
+                    self.copy_target = target.clone();
+                    let dot_idx = target.rfind('.');
+                    let default_dst = if let Some(idx) = dot_idx {
+                        format!("{}_copy{}", &target[..idx], &target[idx..])
+                    } else {
+                        format!("{target}_copy")
+                    };
+                    self.copy_new_name = default_dst;
                 }
 
                 if let Some(target) = file_to_export {

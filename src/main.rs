@@ -716,6 +716,76 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Cp {
+                path,
+                src,
+                dst,
+                recursive,
+                password,
+                keyfile,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
+                    Ok(master_key) => {
+                        let files = match vault::list_files(path_buf, &master_key) {
+                            Ok(f) => f,
+                            Err(e) => {
+                                eprintln!("Error listing files: {e}");
+                                std::process::exit(1);
+                            }
+                        };
+                        let clean_src = src.trim().trim_matches('/');
+                        let is_dir = files
+                            .iter()
+                            .any(|f| f.starts_with(&format!("{clean_src}/")));
+
+                        if is_dir {
+                            if !recursive {
+                                eprintln!(
+                                    "Omitting directory '{src}'. Use -r or --recursive to copy directories."
+                                );
+                                std::process::exit(1);
+                            }
+                            match vault::copy_dir(path_buf, &master_key, &src, &dst) {
+                                Ok(count) => {
+                                    println!(
+                                        "Successfully copied {count} file(s) from directory '{src}' to '{dst}'."
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!("Error copying directory: {e}");
+                                    std::process::exit(1);
+                                }
+                            }
+                        } else {
+                            match vault::copy_file(path_buf, &master_key, &src, &dst) {
+                                Ok(_) => {
+                                    println!("Successfully copied '{src}' to '{dst}'.");
+                                }
+                                Err(e) => {
+                                    eprintln!("Error copying file: {e}");
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
             cli::Commands::Stats {
                 path,
                 password,

@@ -629,6 +629,54 @@ pub fn rename_dir(
     Ok(())
 }
 
+pub fn copy_file(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    src_rel_path: &str,
+    dst_rel_path: &str,
+) -> Result<(), String> {
+    let src = src_rel_path.trim().trim_matches('/');
+    let dst = dst_rel_path.trim().trim_matches('/');
+    if src == dst {
+        return Ok(());
+    }
+    let content = read_file(vault_dir, master_key, src)?;
+    write_file(vault_dir, master_key, dst, &content)?;
+    Ok(())
+}
+
+pub fn copy_dir(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    src_prefix: &str,
+    dst_prefix: &str,
+) -> Result<usize, String> {
+    let src_p = src_prefix.trim().trim_matches('/');
+    let dst_p = dst_prefix.trim().trim_matches('/');
+    if src_p == dst_p {
+        return Ok(0);
+    }
+    let files = list_files(vault_dir, master_key)?;
+    let src_with_slash = format!("{src_p}/");
+    let mut count = 0;
+
+    for file in files {
+        if let Some(suffix) = file.strip_prefix(&src_with_slash) {
+            let new_path = format!("{dst_p}/{suffix}");
+            let content = read_file(vault_dir, master_key, &file)?;
+            write_file(vault_dir, master_key, &new_path, &content)?;
+            if !file.ends_with("/.keep") && file != ".keep" {
+                count += 1;
+            }
+        } else if file == src_p {
+            let content = read_file(vault_dir, master_key, &file)?;
+            write_file(vault_dir, master_key, dst_p, &content)?;
+            count += 1;
+        }
+    }
+    Ok(count)
+}
+
 pub fn delete_dir(
     vault_dir: &Path,
     master_key: &[u8; 32],
@@ -1914,6 +1962,43 @@ mod tests {
         // With only healthy vault:
         let report_good = run_doctor(&[test_dir.to_string_lossy().to_string()]);
         assert!(report_good.is_healthy);
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_copy_file_and_dir() {
+        let test_dir = std::env::temp_dir().join("cryptomator_copy_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "copy_pw", None).unwrap();
+        let key = unlock_vault(&test_dir, "copy_pw", None).unwrap();
+
+        write_file(&test_dir, &key, "docs/a.txt", b"Document A").unwrap();
+        write_file(&test_dir, &key, "docs/sub/b.txt", b"Document B").unwrap();
+
+        // 1. Copy single file
+        copy_file(&test_dir, &key, "docs/a.txt", "docs/a_copy.txt").unwrap();
+        assert_eq!(
+            read_file(&test_dir, &key, "docs/a_copy.txt").unwrap(),
+            b"Document A"
+        );
+        assert_eq!(
+            read_file(&test_dir, &key, "docs/a.txt").unwrap(),
+            b"Document A"
+        );
+
+        // 2. Copy directory recursively
+        let copied = copy_dir(&test_dir, &key, "docs", "backup_docs").unwrap();
+        assert_eq!(copied, 3); // a.txt, a_copy.txt, sub/b.txt
+        assert_eq!(
+            read_file(&test_dir, &key, "backup_docs/a.txt").unwrap(),
+            b"Document A"
+        );
+        assert_eq!(
+            read_file(&test_dir, &key, "backup_docs/sub/b.txt").unwrap(),
+            b"Document B"
+        );
 
         let _ = fs::remove_dir_all(&test_dir);
     }

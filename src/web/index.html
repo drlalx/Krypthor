@@ -1668,6 +1668,13 @@
                           </svg>
                           Umbenennen
                         </button>
+                        <button class="btn btn-secondary btn-sm" onclick="handleCopyDirPrompt('${escapeHtml(targetPath)}')">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                          Kopieren
+                        </button>
                         <button class="btn btn-danger btn-sm" onclick="handleDeleteDir('${escapeHtml(targetPath)}')">
                           Löschen
                         </button>
@@ -1705,6 +1712,13 @@
                           <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                         </svg>
                         Umbenennen
+                      </button>
+                      <button class="btn btn-secondary btn-sm" onclick="handleCopyPrompt('${escapeHtml(f.fullPath)}')">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        Kopieren
                       </button>
                       <a href="/api/vaults/download?vault_path=${encodeURIComponent(selectedVault.path)}&file_path=${encodeURIComponent(f.fullPath)}" class="btn btn-secondary btn-sm" download>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2092,6 +2106,70 @@
         }
       } catch (err) {
         showToast("Fehler: " + err, "error");
+      }
+    }
+
+    async function handleCopyPrompt(srcPath) {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      let defaultDst = srcPath;
+      const dotIdx = defaultDst.lastIndexOf(".");
+      if (dotIdx > 0 && !defaultDst.endsWith("/")) {
+        defaultDst = defaultDst.substring(0, dotIdx) + "_copy" + defaultDst.substring(dotIdx);
+      } else {
+        defaultDst = defaultDst + "_copy";
+      }
+
+      const dst = prompt(`Zielpfad für Kopie von "${srcPath}":`, defaultDst);
+      if (!dst || dst.trim() === "" || dst.trim() === srcPath) return;
+
+      try {
+        const res = await fetch("/api/vaults/copy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vault_path: selectedVault.path,
+            src_path: srcPath,
+            dst_path: dst.trim(),
+            recursive: false
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Kopieren fehlgeschlagen");
+        }
+        showToast("Datei erfolgreich kopiert!", "success");
+        await loadVaultFiles();
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    async function handleCopyDirPrompt(srcPath) {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      const defaultDst = srcPath + "_copy";
+      const dst = prompt(`Zielordner für rekursive Kopie von "${srcPath}":`, defaultDst);
+      if (!dst || dst.trim() === "" || dst.trim() === srcPath) return;
+
+      try {
+        const res = await fetch("/api/vaults/copy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vault_path: selectedVault.path,
+            src_path: srcPath,
+            dst_path: dst.trim(),
+            recursive: true
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Kopieren des Ordners fehlgeschlagen");
+        }
+        const data = await res.json();
+        showToast(`Ordner mit ${data.copied_count} Datei(en) kopiert!`, "success");
+        await loadVaultFiles();
+      } catch (err) {
+        showToast(err.message, "error");
       }
     }
 

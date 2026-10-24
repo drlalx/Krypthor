@@ -14,6 +14,7 @@ fn test_cli_vault_workflow() {
     if test_dir.exists() {
         let _ = fs::remove_dir_all(&test_dir);
     }
+    let _ = fs::write("vaults.json", "[]");
 
     let vault_path = test_dir.to_string_lossy().to_string();
 
@@ -415,7 +416,47 @@ fn test_cli_vault_workflow() {
     );
     assert!(!export_sub_dst.join("imported/a.txt").exists());
 
-    // 16c. Delete directory recursively via CLI (rm -r)
+    // 16c. Copy file and directory via CLI (cp and cp -r)
+    let output = Command::new(bin_path)
+        .args([
+            "cp",
+            "--path",
+            &vault_path,
+            "--src",
+            "imported/a.txt",
+            "--dst",
+            "imported/a_backup.txt",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute cp command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Successfully copied 'imported/a.txt' to 'imported/a_backup.txt'"));
+
+    let output = Command::new(bin_path)
+        .args([
+            "cp",
+            "--path",
+            &vault_path,
+            "--src",
+            "imported/sub",
+            "--dst",
+            "imported/sub_copy",
+            "-r",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute cp -r command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(
+        "Successfully copied 1 file(s) from directory 'imported/sub' to 'imported/sub_copy'"
+    ));
+
+    // 16d. Delete directory recursively via CLI (rm -r)
     let output = Command::new(bin_path)
         .args([
             "rm",
@@ -431,7 +472,7 @@ fn test_cli_vault_workflow() {
         .expect("Failed to execute rm -r command");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Removed 2 item(s) in 'imported'."));
+    assert!(stdout.contains("Removed 4 item(s) in 'imported'."));
 
     // 17. Rename vault via CLI (rename-vault)
     let output = Command::new(bin_path)
@@ -608,6 +649,7 @@ fn test_cli_vault_workflow() {
 
     // Cleanup
     let _ = fs::remove_dir_all(&test_dir);
+    let _ = fs::write("vaults.json", "[]");
 }
 
 #[test]

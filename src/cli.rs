@@ -242,6 +242,27 @@ pub enum Commands {
         #[arg(short, long)]
         keyfile: Option<String>,
     },
+    /// Copy a file or directory inside the vault
+    Cp {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Source path inside the vault
+        #[arg(short, long)]
+        src: String,
+        /// Destination path inside the vault
+        #[arg(short, long)]
+        dst: String,
+        /// Recursively copy directories and their contents
+        #[arg(short = 'r', long)]
+        recursive: bool,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+    },
     /// Show vault statistics (number of decrypted files and total payload size)
     Stats {
         /// Path to the vault folder containing masterkey.json

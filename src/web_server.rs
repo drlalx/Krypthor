@@ -153,6 +153,21 @@ pub struct RenameFileRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct CopyFileRequest {
+    pub vault_path: String,
+    pub src_path: String,
+    pub dst_path: String,
+    #[serde(default)]
+    pub recursive: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CopyFileResponse {
+    pub success: bool,
+    pub copied_count: usize,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct ChangePasswordRequest {
     pub vault_path: String,
     pub old_password: String,
@@ -822,6 +837,70 @@ async fn rename_file_handler(
     }))
 }
 
+async fn copy_file_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<CopyFileRequest>,
+) -> Result<Json<CopyFileResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
+
+    let vault_dir = Path::new(&payload.vault_path);
+    let files = vault::list_files(vault_dir, &master_key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    let clean_src = payload.src_path.trim().trim_matches('/');
+    let is_dir = files
+        .iter()
+        .any(|f| f.starts_with(&format!("{clean_src}/")));
+
+    let copied_count = if is_dir {
+        if !payload.recursive {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "Source is a directory; recursive copy required".into(),
+                }),
+            ));
+        }
+        vault::copy_dir(vault_dir, &master_key, &payload.src_path, &payload.dst_path).map_err(
+            |e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error: e }),
+                )
+            },
+        )?
+    } else {
+        vault::copy_file(vault_dir, &master_key, &payload.src_path, &payload.dst_path).map_err(
+            |e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error: e }),
+                )
+            },
+        )?;
+        1
+    };
+
+    Ok(Json(CopyFileResponse {
+        success: true,
+        copied_count,
+    }))
+}
+
 async fn change_password_handler(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ChangePasswordRequest>,
@@ -975,6 +1054,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/upload", post(upload_file_handler))
         .route("/api/vaults/mkdir", post(mkdir_handler))
         .route("/api/vaults/rename", post(rename_file_handler))
+        .route("/api/vaults/copy", post(copy_file_handler))
         .route("/api/vaults/delete", post(delete_file_handler))
         .route("/api/vaults/change_password", post(change_password_handler))
         .route("/api/vaults/recovery_key", post(recovery_key_handler))
@@ -1416,6 +1496,51 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+
+        // 9b. Mkdir & Copy file via API
+        let mkdir_req = MkdirRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+            folder_path: "folder".to_string(),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/mkdir")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&mkdir_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let copy_req = CopyFileRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+            src_path: "folder/.keep".to_string(),
+            dst_path: "folder/copied_keep.txt".to_string(),
+            recursive: false,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/copy")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&copy_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let copy_body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let copy_resp: CopyFileResponse = serde_json::from_slice(&copy_body).unwrap();
+        assert!(copy_resp.success);
+        assert_eq!(copy_resp.copied_count, 1);
 
         // 10. Export ZIP via API
         let res = router
