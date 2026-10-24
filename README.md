@@ -15,11 +15,13 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
   - **Live-Dateisuche & Tresorstatistiken**: Sofortige Volltextsuche über alle Ordner hinweg sowie Anzeige von Dateianzahl und belegtem Speicherplatz.
   - **Passwortänderung & Wiederherstellungsschlüssel**: Bequeme Passwortaktualisierung im laufenden Betrieb sowie Export und Entsperrung via 64-stelligem Recovery-Key.
   - **ZIP-Direktexport**: Entschlüsselter Komplett-Download des Tresors als ZIP-Archiv direkt im Browser oder per REST-API (`/api/vaults/export_zip`).
-  - **Auto-Lock**: Automatische Sperrung und sichere Speicherbereinigung entsperrter Tresore nach 30 Minuten Inaktivität.
-  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/stats`, `/api/vaults/export_zip`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, etc.).
-- **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal.
+  - **Konfigurierbares Auto-Lock**: Automatische Sperrung und sichere Speicherbereinigung entsperrter Tresore bei Inaktivität (wählbar: 5, 15, 30, 60 Minuten oder deaktiviert) mit Status-Badge.
+  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/find`, `/api/vaults/stats`, `/api/vaults/export_zip`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, `/api/vaults/backup_key`, `/api/vaults/restore_key`, etc.).
+- **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal inklusive Inaktivitäts-Auto-Lock.
 - **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via Pure-Rust FUSE (ohne C `libfuse`-Bindung).
-- **CLI-Befehle**: Vollwertige Steuerung ohne GUI über Subcommands (`list`, `create`, `mount`, `tui`, `serve`).
+- **Streaming I/O**: Direkte Stream-Verarbeitung (Reader/Writer) für `put`, `cat`, `import` und `export` zur Minimierung der RAM-Auslastung bei großen Datenmengen.
+- **Katastrophenschutz & Resilienz**: Atomare Schreibvorgänge via PID-Temporärdateien (`fs::rename`) sowie automatische Pflege von `masterkey.json.bkup` mit transparentem Fallback-Entsperren.
+- **CLI-Befehle**: Vollwertige Steuerung ohne GUI über 17 Subcommands (`create`, `mount`, `ls`, `find`, `put`, `cat`, `rm`, `mv`, `stats`, `mkdir`, `export`, `import`, `verify`, `backup-key`, `restore-key`, `tui`, `serve`).
 - **Sicherheitsarchitektur**:
   - **Schlüsselableitung**: Scrypt (N=16384, r=8, p=1) mit optionaler Unterstützung für Schlüsseldateien (Keyfiles).
   - **Dateiverschlüsselung**: Authenticated Encryption mit AES-256-GCM. Jede Datei enthält einen zufälligen 12-Byte-Nonce und verschlüsselte Pfadmetadaten.
@@ -151,6 +153,18 @@ cargo run --release -- recover --path "/pfad/zum/tresor" --key "XXXX-XXXX-XXXX-.
 #### Dateien im Tresor auflisten (ls)
 ```bash
 cargo run --release -- ls --path "/pfad/zum/tresor"
+# Mit Dateigröße und Änderungsdatum (-l / --long):
+cargo run --release -- ls --path "/pfad/zum/tresor" -l
+# Mit Filterung nach Begriff:
+cargo run --release -- ls --path "/pfad/zum/tresor" --pattern "dokumente"
+```
+
+#### Dateien suchen (find)
+Sucht gezielt nach Dateien anhand eines Suchbegriffs (optional mit detaillierter Ansicht `-l`):
+```bash
+cargo run --release -- find --path "/pfad/zum/tresor" -q "bericht"
+# Mit Detailansicht:
+cargo run --release -- find --path "/pfad/zum/tresor" -q "bericht" -l
 ```
 
 #### Datei in Tresor verschlüsseln & ablegen (put)
