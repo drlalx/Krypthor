@@ -507,10 +507,10 @@ fn main() {
                         p.trim().to_string()
                     }
                 };
-                let content = match std::fs::read(&source) {
-                    Ok(c) => c,
+                let src_file = match std::fs::File::open(&source) {
+                    Ok(f) => f,
                     Err(e) => {
-                        eprintln!("Failed to read source file '{source}': {e}");
+                        eprintln!("Failed to open source file '{source}': {e}");
                         std::process::exit(1);
                     }
                 };
@@ -523,11 +523,16 @@ fn main() {
                 let path_buf = Path::new(&path);
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
-                        match vault::write_file(path_buf, &master_key, &target_path, &content) {
-                            Ok(_) => {
+                        match vault::write_file_from_reader(
+                            path_buf,
+                            &master_key,
+                            &target_path,
+                            src_file,
+                        ) {
+                            Ok(bytes_written) => {
                                 println!(
                                     "File stored as '{target_path}' ({}) in vault.",
-                                    format_bytes_cli(content.len() as u64)
+                                    format_bytes_cli(bytes_written)
                                 );
                             }
                             Err(e) => {
@@ -561,15 +566,16 @@ fn main() {
                 };
                 let path_buf = Path::new(&path);
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
-                    Ok(master_key) => match vault::read_file(path_buf, &master_key, &file) {
-                        Ok(content) => {
-                            let _ = std::io::stdout().write_all(&content);
-                        }
-                        Err(e) => {
+                    Ok(master_key) => {
+                        let stdout = std::io::stdout();
+                        let mut handle = stdout.lock();
+                        if let Err(e) =
+                            vault::read_file_to_writer(path_buf, &master_key, &file, &mut handle)
+                        {
                             eprintln!("Error reading file '{file}': {e}");
                             std::process::exit(1);
                         }
-                    },
+                    }
                     Err(e) => {
                         eprintln!("Unlock failed: {e}");
                         std::process::exit(1);

@@ -5,7 +5,7 @@ use scrypt::{Params, scrypt};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -486,6 +486,32 @@ pub fn write_file(
     Ok(())
 }
 
+pub fn write_file_from_reader<R: Read>(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
+    mut reader: R,
+) -> Result<u64, String> {
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
+    let len = buffer.len() as u64;
+    write_file(vault_dir, master_key, relative_path, &buffer)?;
+    Ok(len)
+}
+
+pub fn read_file_to_writer<W: Write>(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
+    mut writer: W,
+) -> Result<u64, String> {
+    let content = read_file(vault_dir, master_key, relative_path)?;
+    let len = content.len() as u64;
+    writer.write_all(&content).map_err(|e| e.to_string())?;
+    writer.flush().map_err(|e| e.to_string())?;
+    Ok(len)
+}
+
 pub fn read_file(
     vault_dir: &Path,
     master_key: &[u8; 32],
@@ -806,12 +832,12 @@ pub fn export_vault(
             let target_folder = dest_dir.join(parent);
             fs::create_dir_all(&target_folder).map_err(|e| e.to_string())?;
         } else {
-            let content = read_file(vault_dir, master_key, &rel_path)?;
             let dest_file_path = dest_dir.join(&rel_path);
             if let Some(parent) = dest_file_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             }
-            fs::write(&dest_file_path, &content).map_err(|e| e.to_string())?;
+            let mut dest_file = File::create(&dest_file_path).map_err(|e| e.to_string())?;
+            read_file_to_writer(vault_dir, master_key, &rel_path, &mut dest_file)?;
             exported_count += 1;
         }
     }
@@ -854,8 +880,8 @@ pub fn import_dir(
                     }
                     _ => rel,
                 };
-                let content = fs::read(&path).map_err(|e| e.to_string())?;
-                write_file(vault_dir, master_key, &target_path, &content)?;
+                let src_file = File::open(&path).map_err(|e| e.to_string())?;
+                write_file_from_reader(vault_dir, master_key, &target_path, src_file)?;
                 count += 1;
             }
         }
@@ -1373,6 +1399,30 @@ mod tests {
 
         let no_matches = find_files(&test_dir, &key, "nonexistent").unwrap();
         assert_eq!(no_matches.len(), 0);
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_streaming_read_and_write() {
+        let test_dir = std::env::temp_dir().join("cryptomator_stream_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "streampw", None).unwrap();
+        let key = unlock_vault(&test_dir, "streampw", None).unwrap();
+
+        // 1. Write via reader
+        let data = b"Large payload simulated stream content 1234567890";
+        let cursor = std::io::Cursor::new(data);
+        let written = write_file_from_reader(&test_dir, &key, "streamed/data.bin", cursor).unwrap();
+        assert_eq!(written, data.len() as u64);
+
+        // 2. Read via writer
+        let mut out_buffer = Vec::new();
+        let read =
+            read_file_to_writer(&test_dir, &key, "streamed/data.bin", &mut out_buffer).unwrap();
+        assert_eq!(read, data.len() as u64);
+        assert_eq!(&out_buffer, data);
 
         let _ = fs::remove_dir_all(&test_dir);
     }
