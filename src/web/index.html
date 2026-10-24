@@ -1022,7 +1022,14 @@
         if (res.ok) {
           const stats = await res.json();
           const sizeStr = formatBytes(stats.total_size_bytes);
-          badge.innerText = `${stats.total_files} Datei(en) • ${sizeStr}`;
+          let lockText = "";
+          if (selectedVault.auto_lock_remaining_seconds !== undefined && selectedVault.auto_lock_remaining_seconds !== null) {
+            const mins = Math.max(1, Math.ceil(selectedVault.auto_lock_remaining_seconds / 60));
+            lockText = ` • ⏱️ Auto-Lock: ${mins}m`;
+          } else if (selectedVault.auto_lock_timeout_seconds === 0) {
+            lockText = " • ⏱️ Auto-Lock: Aus";
+          }
+          badge.innerText = `${stats.total_files} Datei(en) • ${sizeStr}${lockText}`;
           badge.style.display = "inline-block";
         }
       } catch (e) {
@@ -1168,6 +1175,16 @@
               <div class="form-group" style="margin-top: 10px;">
                 <input type="text" id="unlockKeyfile" class="form-input" placeholder="Schlüsseldatei-Pfad (optional)">
               </div>
+              <div class="form-group" style="margin-top: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <label for="unlockTimeout" style="font-size: 0.8rem; color: var(--text-muted); margin: 0; white-space: nowrap;">⏱️ Automatisches Sperren:</label>
+                <select id="unlockTimeout" class="form-input" style="padding: 6px 10px; font-size: 0.8rem; max-width: 170px;">
+                  <option value="5">Nach 5 Minuten</option>
+                  <option value="15">Nach 15 Minuten</option>
+                  <option value="30" selected>Nach 30 Minuten</option>
+                  <option value="60">Nach 60 Minuten</option>
+                  <option value="0">Deaktiviert (Nie)</option>
+                </select>
+              </div>
               <button type="submit" class="btn btn-primary" style="width: 100%;">Tresor entsperren</button>
             </form>
             <div style="margin-top: 14px; text-align: center; display: flex; flex-direction: column; gap: 8px;">
@@ -1192,6 +1209,8 @@
       const password = pwInput.value;
       const kfInput = document.getElementById("unlockKeyfile");
       const keyfile = kfInput && kfInput.value.trim() ? kfInput.value.trim() : null;
+      const timeoutSelect = document.getElementById("unlockTimeout");
+      const timeoutMinutes = timeoutSelect ? parseInt(timeoutSelect.value, 10) : 30;
 
       try {
         const res = await fetch("/api/vaults/unlock", {
@@ -1200,7 +1219,8 @@
           body: JSON.stringify({
             path: selectedVault.path,
             password: password,
-            keyfile: keyfile
+            keyfile: keyfile,
+            timeout_minutes: timeoutMinutes
           })
         });
 

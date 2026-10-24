@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::fs_fuse;
 use crate::vault;
@@ -74,6 +74,10 @@ struct TuiApp {
     create_name: String,
     create_path: String,
     create_password: String,
+
+    // Auto-lock inactivity tracker
+    last_interaction: Instant,
+    auto_lock_timeout: Duration,
 }
 
 impl TuiApp {
@@ -96,6 +100,20 @@ impl TuiApp {
             create_name: String::new(),
             create_path: String::new(),
             create_password: String::new(),
+            last_interaction: Instant::now(),
+            auto_lock_timeout: Duration::from_secs(15 * 60),
+        }
+    }
+
+    fn check_auto_lock(&mut self) {
+        if !self.active_mounts.is_empty()
+            && self.last_interaction.elapsed() >= self.auto_lock_timeout
+        {
+            let count = self.active_mounts.len();
+            self.active_mounts.clear();
+            self.unlocked_keys.clear();
+            self.status_message = format!("Auto-locked {count} vault(s) after 15 min inactivity.");
+            self.status_is_error = false;
         }
     }
 
@@ -314,11 +332,13 @@ fn run_loop<B: ratatui::backend::Backend>(
     app: &mut TuiApp,
 ) -> io::Result<()> {
     loop {
+        app.check_auto_lock();
         terminal.draw(|f| ui_draw(f, app))?;
 
         if event::poll(Duration::from_millis(200))?
             && let Event::Key(key) = event::read()?
         {
+            app.last_interaction = Instant::now();
             match app.input_mode {
                 InputMode::Normal => match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => {

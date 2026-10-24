@@ -19,6 +19,7 @@ use crate::{SavedVault, load_saved_vaults, save_saved_vaults};
 pub struct UnlockedVaultInfo {
     pub master_key: [u8; 32],
     pub last_activity: std::time::Instant,
+    pub timeout_seconds: u64,
 }
 
 #[derive(Default)]
@@ -30,8 +31,9 @@ impl AppState {
     pub async fn get_master_key(&self, vault_path: &str) -> Option<[u8; 32]> {
         let mut unlocked = self.unlocked_vaults.write().await;
         if let Some(info) = unlocked.get_mut(vault_path) {
-            // Auto-lock after 30 minutes (1800s) of inactivity
-            if info.last_activity.elapsed().as_secs() > 1800 {
+            if info.timeout_seconds > 0
+                && info.last_activity.elapsed().as_secs() > info.timeout_seconds
+            {
                 unlocked.remove(vault_path);
                 None
             } else {
@@ -60,6 +62,10 @@ pub struct VaultInfo {
     pub name: String,
     pub path: String,
     pub is_unlocked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_lock_remaining_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_lock_timeout_seconds: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -76,7 +82,10 @@ pub struct AddVaultRequest {
 pub struct UnlockVaultRequest {
     pub path: String,
     pub password: String,
+    #[serde(default)]
     pub keyfile: Option<String>,
+    #[serde(default)]
+    pub timeout_minutes: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -171,6 +180,8 @@ pub struct RestoreKeyRequest {
 pub struct RecoverVaultRequest {
     pub path: String,
     pub recovery_key: String,
+    #[serde(default)]
+    pub timeout_minutes: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -199,17 +210,40 @@ async fn status_handler() -> Json<StatusResponse> {
 async fn list_vaults_handler(State(state): State<Arc<AppState>>) -> Json<Vec<VaultInfo>> {
     let saved = load_saved_vaults();
     let mut unlocked = state.unlocked_vaults.write().await;
-    // Evict expired vaults (30 minutes inactivity)
-    unlocked.retain(|_, info| info.last_activity.elapsed().as_secs() <= 1800);
+    // Evict expired vaults
+    unlocked.retain(|_, info| {
+        if info.timeout_seconds > 0 {
+            info.last_activity.elapsed().as_secs() <= info.timeout_seconds
+        } else {
+            true
+        }
+    });
 
     let list = saved
         .into_iter()
         .map(|v| {
-            let is_unlocked = unlocked.contains_key(&v.path);
-            VaultInfo {
-                name: v.name,
-                path: v.path,
-                is_unlocked,
+            if let Some(info) = unlocked.get(&v.path) {
+                let remaining = if info.timeout_seconds > 0 {
+                    let elapsed = info.last_activity.elapsed().as_secs();
+                    Some(info.timeout_seconds.saturating_sub(elapsed))
+                } else {
+                    None
+                };
+                VaultInfo {
+                    name: v.name,
+                    path: v.path,
+                    is_unlocked: true,
+                    auto_lock_remaining_seconds: remaining,
+                    auto_lock_timeout_seconds: Some(info.timeout_seconds),
+                }
+            } else {
+                VaultInfo {
+                    name: v.name,
+                    path: v.path,
+                    is_unlocked: false,
+                    auto_lock_remaining_seconds: None,
+                    auto_lock_timeout_seconds: None,
+                }
             }
         })
         .collect();
@@ -272,12 +306,14 @@ async fn unlock_vault_handler(
     let master_key = vault::unlock_vault(vault_path, &payload.password, keyfile_path)
         .map_err(|e| (StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: e })))?;
 
+    let timeout_seconds = payload.timeout_minutes.unwrap_or(30) * 60;
     let mut unlocked = state.unlocked_vaults.write().await;
     unlocked.insert(
         payload.path,
         UnlockedVaultInfo {
             master_key,
             last_activity: std::time::Instant::now(),
+            timeout_seconds,
         },
     );
 
@@ -828,12 +864,14 @@ async fn recover_vault_handler(
         ));
     }
 
+    let timeout_seconds = payload.timeout_minutes.unwrap_or(30) * 60;
     let mut unlocked = state.unlocked_vaults.write().await;
     unlocked.insert(
         payload.path,
         UnlockedVaultInfo {
             master_key,
             last_activity: std::time::Instant::now(),
+            timeout_seconds,
         },
     );
 
@@ -922,6 +960,24 @@ pub async fn run_server_with_shutdown(
     shutdown_rx: tokio::sync::oneshot::Receiver<()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let state = Arc::new(AppState::default());
+
+    // Periodic background cleanup of expired vault sessions
+    let bg_state = Arc::clone(&state);
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            let mut unlocked = bg_state.unlocked_vaults.write().await;
+            unlocked.retain(|_path, info| {
+                if info.timeout_seconds > 0 {
+                    info.last_activity.elapsed().as_secs() <= info.timeout_seconds
+                } else {
+                    true
+                }
+            });
+        }
+    });
+
     let app = build_router(state);
 
     let addr_str = format!("{host}:{port}");
@@ -1021,6 +1077,7 @@ mod tests {
             path: temp_dir.to_string_lossy().to_string(),
             password: "webpassword123".to_string(),
             keyfile: None,
+            timeout_minutes: None,
         };
         let res = router
             .clone()
@@ -1167,6 +1224,7 @@ mod tests {
             path: temp_dir.to_string_lossy().to_string(),
             password: "first_password".to_string(),
             keyfile: None,
+            timeout_minutes: None,
         };
         let res = router
             .clone()
@@ -1247,6 +1305,7 @@ mod tests {
         let recover_req = RecoverVaultRequest {
             path: temp_dir.to_string_lossy().to_string(),
             recovery_key,
+            timeout_minutes: None,
         };
         let res = router
             .clone()
@@ -1284,6 +1343,7 @@ mod tests {
             path: temp_dir.to_string_lossy().to_string(),
             password: "second_password".to_string(),
             keyfile: None,
+            timeout_minutes: None,
         };
         let res = router
             .clone()
@@ -1424,6 +1484,7 @@ mod tests {
             path: vault_dir.to_string_lossy().to_string(),
             password: "webkeypass1".to_string(),
             keyfile: None,
+            timeout_minutes: None,
         };
         let res = router
             .clone()
@@ -1444,6 +1505,7 @@ mod tests {
             path: vault_dir.to_string_lossy().to_string(),
             password: "webkeypass1".to_string(),
             keyfile: Some(kf1_str.clone()),
+            timeout_minutes: None,
         };
         let res = router
             .clone()
@@ -1486,6 +1548,7 @@ mod tests {
             path: vault_dir.to_string_lossy().to_string(),
             password: "webkeypass2".to_string(),
             keyfile: Some(kf2_str.clone()),
+            timeout_minutes: None,
         };
         let res = router
             .clone()
@@ -1527,6 +1590,7 @@ mod tests {
             path: vault_dir.to_string_lossy().to_string(),
             password: "findpass123".to_string(),
             keyfile: None,
+            timeout_minutes: None,
         };
         let res = router
             .clone()
@@ -1593,5 +1657,39 @@ mod tests {
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);
         save_saved_vaults(&original_saved);
+    }
+
+    #[tokio::test]
+    async fn test_auto_lock_expiration() {
+        let state = AppState::default();
+        let key = [42u8; 32];
+        let path = "/tmp/test_auto_lock_vault".to_string();
+
+        // 1. Insert with 10s timeout, but last_activity was 15s ago
+        state.unlocked_vaults.write().await.insert(
+            path.clone(),
+            UnlockedVaultInfo {
+                master_key: key,
+                last_activity: std::time::Instant::now() - std::time::Duration::from_secs(15),
+                timeout_seconds: 10,
+            },
+        );
+
+        // get_master_key must return None and remove the expired vault
+        assert_eq!(state.get_master_key(&path).await, None);
+        assert!(!state.unlocked_vaults.read().await.contains_key(&path));
+
+        // 2. Insert with 0 (disabled auto-lock), last_activity 100s ago
+        state.unlocked_vaults.write().await.insert(
+            path.clone(),
+            UnlockedVaultInfo {
+                master_key: key,
+                last_activity: std::time::Instant::now() - std::time::Duration::from_secs(100),
+                timeout_seconds: 0,
+            },
+        );
+
+        // get_master_key must return Some(key)
+        assert_eq!(state.get_master_key(&path).await, Some(key));
     }
 }
