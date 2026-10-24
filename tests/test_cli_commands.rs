@@ -144,6 +144,74 @@ fn test_cli_vault_workflow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("finances/report.txt"));
 
+    // 8b. List files detailed (ls -l)
+    let output = Command::new(bin_path)
+        .args([
+            "ls",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+            "-l",
+        ])
+        .output()
+        .expect("Failed to execute ls -l command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("finances/report.txt"));
+    assert!(stdout.contains("202")); // year 202x
+
+    // 8c. List files filtered (ls --pattern)
+    let output = Command::new(bin_path)
+        .args([
+            "ls",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+            "--pattern",
+            "report",
+        ])
+        .output()
+        .expect("Failed to execute ls --pattern");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("finances/report.txt"));
+
+    // 8d. Find files via CLI (find)
+    let output = Command::new(bin_path)
+        .args([
+            "find",
+            "--path",
+            &vault_path,
+            "-q",
+            "report",
+            "--password",
+            "updated_secret",
+            "-l",
+        ])
+        .output()
+        .expect("Failed to execute find command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("finances/report.txt"));
+
+    let output = Command::new(bin_path)
+        .args([
+            "find",
+            "--path",
+            &vault_path,
+            "-q",
+            "nonexistent_xyz",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute find command with no match");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("No files matching 'nonexistent_xyz' found."));
+
     // 9. Read file content via CLI (cat)
     let output = Command::new(bin_path)
         .args([

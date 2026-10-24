@@ -89,6 +89,12 @@ pub struct FilesQuery {
     pub path: String,
 }
 
+#[derive(Deserialize)]
+pub struct FindQuery {
+    pub path: String,
+    pub q: String,
+}
+
 #[derive(Serialize)]
 pub struct FilesResponse {
     pub files: Vec<String>,
@@ -308,6 +314,31 @@ async fn list_files_handler(
 
     let vault_path = Path::new(&query.path);
     let items = vault::list_files_with_details(vault_path, &master_key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    let files = items.iter().map(|item| item.path.clone()).collect();
+    Ok(Json(FilesResponse { files, items }))
+}
+
+async fn find_files_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<FindQuery>,
+) -> Result<Json<FilesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked or session expired".into(),
+            }),
+        )
+    })?;
+
+    let vault_path = Path::new(&query.path);
+    let items = vault::find_files(vault_path, &master_key, &query.q).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
@@ -858,6 +889,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/remove", post(remove_vault_handler))
         .route("/api/vaults/rename_vault", post(rename_vault_handler))
         .route("/api/vaults/files", get(list_files_handler))
+        .route("/api/vaults/find", get(find_files_handler))
         .route("/api/vaults/stats", get(vault_stats_handler))
         .route("/api/vaults/verify", get(verify_vault_handler))
         .route("/api/vaults/download", get(download_file_handler))
@@ -1468,6 +1500,95 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        save_saved_vaults(&original_saved);
+    }
+
+    #[tokio::test]
+    async fn test_web_api_find_and_metadata() {
+        let _guard = TEST_LOCK.lock().await;
+        let original_saved = load_saved_vaults();
+        let temp_dir = std::env::temp_dir().join("cryptomator_web_find_test");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        let vault_dir = temp_dir.join("find_vault");
+        crate::vault::create_vault(&vault_dir, "findpass123", None).unwrap();
+        let key = crate::vault::unlock_vault(&vault_dir, "findpass123", None).unwrap();
+        crate::vault::write_file(&vault_dir, &key, "docs/budget.pdf", b"PDF").unwrap();
+        crate::vault::write_file(&vault_dir, &key, "images/photo.jpg", b"JPG").unwrap();
+
+        let state = Arc::new(AppState::default());
+        let router = build_router(state);
+
+        let unlock_req = UnlockVaultRequest {
+            path: vault_dir.to_string_lossy().to_string(),
+            password: "findpass123".to_string(),
+            keyfile: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 1. GET /api/vaults/files -> verify items and modification date
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/vaults/files?path={}",
+                        vault_dir.to_string_lossy()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let files_resp: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let items = files_resp.get("items").unwrap().as_array().unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items[0].get("modified").is_some());
+
+        // 2. GET /api/vaults/find?path=...&q=budget
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/vaults/find?path={}&q=budget",
+                        vault_dir.to_string_lossy()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body_bytes = axum::body::to_bytes(res.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let find_resp: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let find_items = find_resp.get("items").unwrap().as_array().unwrap();
+        assert_eq!(find_items.len(), 1);
+        assert_eq!(find_items[0]["path"], "docs/budget.pdf");
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&temp_dir);

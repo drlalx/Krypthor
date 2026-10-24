@@ -840,9 +840,22 @@
     let currentPath = "";
     let rawVaultFiles = [];
     let fileSizes = {};
+    let fileDates = {};
     let fileFilterQuery = "";
     let sortField = "name";
     let sortAsc = true;
+
+    function formatDate(secs) {
+      if (!secs) return "—";
+      const d = new Date(secs * 1000);
+      return d.toLocaleDateString("de-DE", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
 
     function toggleSort(field) {
       if (sortField === field) {
@@ -1280,9 +1293,11 @@
         const data = await res.json();
         rawVaultFiles = data.files || [];
         fileSizes = {};
+        fileDates = {};
         if (data.items) {
           for (const item of data.items) {
             fileSizes[item.path] = item.size;
+            fileDates[item.path] = item.modified || null;
           }
         }
         renderFileList(rawVaultFiles);
@@ -1298,6 +1313,7 @@
 
       const sortIconName = sortField === 'name' ? (sortAsc ? ' ▲' : ' ▼') : '';
       const sortIconSize = sortField === 'size' ? (sortAsc ? ' ▲' : ' ▼') : '';
+      const sortIconModified = sortField === 'modified' ? (sortAsc ? ' ▲' : ' ▼') : '';
 
       if (fileFilterQuery) {
         let filtered = allFiles.filter(f => f.toLowerCase().includes(fileFilterQuery) && !f.endsWith("/.keep"));
@@ -1306,6 +1322,11 @@
             const sizeA = fileSizes[a] || 0;
             const sizeB = fileSizes[b] || 0;
             return sortAsc ? sizeA - sizeB : sizeB - sizeA;
+          }
+          if (sortField === "modified") {
+            const dateA = fileDates[a] || 0;
+            const dateB = fileDates[b] || 0;
+            return sortAsc ? dateA - dateB : dateB - dateA;
           }
           return sortAsc ? a.localeCompare(b) : b.localeCompare(a);
         });
@@ -1318,12 +1339,13 @@
               <thead>
                 <tr>
                   <th class="sortable" onclick="toggleSort('name')">Pfad${sortIconName}</th>
-                  <th class="sortable" style="width: 120px;" onclick="toggleSort('size')">Größe${sortIconSize}</th>
+                  <th class="sortable" style="width: 110px;" onclick="toggleSort('size')">Größe${sortIconSize}</th>
+                  <th class="sortable" style="width: 150px;" onclick="toggleSort('modified')">Geändert${sortIconModified}</th>
                   <th style="text-align: right; width: 280px;">Aktionen</th>
                 </tr>
               </thead>
               <tbody>
-                ${filtered.length === 0 ? '<tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 20px;">Keine Dateien gefunden.</td></tr>' : ''}
+                ${filtered.length === 0 ? '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 20px;">Keine Dateien gefunden.</td></tr>' : ''}
                 ${filtered.map(f => `
                   <tr class="file-row" onclick="openFilePreview('${escapeHtml(f)}')">
                     <td>
@@ -1334,6 +1356,9 @@
                     </td>
                     <td style="color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
                       ${fileSizes[f] !== undefined ? formatBytes(fileSizes[f]) : '—'}
+                    </td>
+                    <td style="color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
+                      ${formatDate(fileDates[f])}
                     </td>
                     <td>
                       <div class="file-actions" onclick="event.stopPropagation()">
@@ -1376,6 +1401,11 @@
           const sizeB = fileSizes[b.fullPath] || 0;
           return sortAsc ? sizeA - sizeB : sizeB - sizeA;
         }
+        if (sortField === "modified") {
+          const dateA = fileDates[a.fullPath] || 0;
+          const dateB = fileDates[b.fullPath] || 0;
+          return sortAsc ? dateA - dateB : dateB - dateA;
+        }
         return sortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
       });
 
@@ -1399,7 +1429,7 @@
         const parentPath = lastSlash !== -1 ? currentPath.substring(0, lastSlash) : "";
         parentRow = `
           <tr class="file-row" onclick="navigateTo('${escapeHtml(parentPath)}')">
-            <td colspan="3">
+            <td colspan="4">
               <div class="file-name-cell" style="color: var(--text-muted);">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polyline points="15 18 9 12 15 6"></polyline>
@@ -1417,7 +1447,8 @@
             <thead>
               <tr>
                 <th class="sortable" onclick="toggleSort('name')">Name${sortIconName}</th>
-                <th class="sortable" style="width: 120px;" onclick="toggleSort('size')">Größe${sortIconSize}</th>
+                <th class="sortable" style="width: 110px;" onclick="toggleSort('size')">Größe${sortIconSize}</th>
+                <th class="sortable" style="width: 150px;" onclick="toggleSort('modified')">Geändert${sortIconModified}</th>
                 <th style="text-align: right; width: 280px;">Aktionen</th>
               </tr>
             </thead>
@@ -1435,6 +1466,7 @@
                         <span style="font-weight: 600;">${escapeHtml(folder)}</span>
                       </div>
                     </td>
+                    <td style="color: var(--text-muted); font-size: 0.8rem;">—</td>
                     <td style="color: var(--text-muted); font-size: 0.8rem;">—</td>
                     <td>
                       <div class="file-actions" onclick="event.stopPropagation()">
@@ -1460,6 +1492,9 @@
                   </td>
                   <td style="color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
                     ${fileSizes[f.fullPath] !== undefined ? formatBytes(fileSizes[f.fullPath]) : '—'}
+                  </td>
+                  <td style="color: var(--text-muted); font-size: 0.8rem; white-space: nowrap;">
+                    ${formatDate(fileDates[f.fullPath])}
                   </td>
                   <td>
                     <div class="file-actions" onclick="event.stopPropagation()">

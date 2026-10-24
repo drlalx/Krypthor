@@ -851,13 +851,15 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
                         )));
                         for f in visible.iter().take(5) {
                             let size_kb = f.size as f64 / 1024.0;
+                            let extra = if let Some(m) = f.modified {
+                                format!(" ({:.1} KB • {})", size_kb, vault::format_timestamp(m))
+                            } else {
+                                format!(" ({:.1} KB)", size_kb)
+                            };
                             detail_lines.push(Line::from(vec![
                                 Span::styled("  • ", Style::default().fg(Color::DarkGray)),
                                 Span::styled(f.path.clone(), Style::default().fg(Color::White)),
-                                Span::styled(
-                                    format!(" ({:.1} KB)", size_kb),
-                                    Style::default().fg(Color::DarkGray),
-                                ),
+                                Span::styled(extra, Style::default().fg(Color::DarkGray)),
                             ]));
                         }
                         if visible.len() > 5 {

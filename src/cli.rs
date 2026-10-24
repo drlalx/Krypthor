@@ -135,6 +135,30 @@ pub enum Commands {
         /// Optional path to a keyfile
         #[arg(short, long)]
         keyfile: Option<String>,
+        /// Display detailed long listing with size and modification timestamp
+        #[arg(short = 'l', long)]
+        long: bool,
+        /// Optional substring filter pattern
+        #[arg(long)]
+        pattern: Option<String>,
+    },
+    /// Search for files inside the vault matching a query or pattern
+    Find {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Search pattern or substring
+        #[arg(short = 'q', long)]
+        query: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+        /// Display detailed long listing with size and modification timestamp
+        #[arg(short = 'l', long)]
+        long: bool,
     },
     /// Encrypt and store a file into the vault
     Put {

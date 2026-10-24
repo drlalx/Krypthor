@@ -564,6 +564,31 @@ pub fn rename_dir(
 pub struct FileItem {
     pub path: String,
     pub size: u64,
+    #[serde(default)]
+    pub modified: Option<u64>,
+}
+
+fn days_to_civil(days: u64) -> (i64, u32, u32) {
+    let z = days as i64 + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y, m, d)
+}
+
+pub fn format_timestamp(secs: u64) -> String {
+    let days = secs / 86400;
+    let rem_secs = secs % 86400;
+    let hours = rem_secs / 3600;
+    let minutes = (rem_secs % 3600) / 60;
+    let (y, m, d) = days_to_civil(days);
+    format!("{y:04}-{m:02}-{d:02} {hours:02}:{minutes:02}")
 }
 
 pub fn list_files_with_details(
@@ -580,6 +605,13 @@ pub fn list_files_with_details(
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         if path.is_file() && path.extension().is_some_and(|ext| ext == "c9r") {
+            let modified = entry.metadata().ok().and_then(|meta| {
+                meta.modified().ok().and_then(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .ok()
+                        .map(|d| d.as_secs())
+                })
+            });
             let mut file = File::open(&path).map_err(|e| e.to_string())?;
             let mut payload = Vec::new();
             if file.read_to_end(&mut payload).is_ok()
@@ -588,6 +620,7 @@ pub fn list_files_with_details(
                 files.push(FileItem {
                     path: rel_path,
                     size: content.len() as u64,
+                    modified,
                 });
             }
         }
@@ -596,6 +629,19 @@ pub fn list_files_with_details(
     // Sort files alphabetically by path
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
+}
+
+pub fn find_files(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    query: &str,
+) -> Result<Vec<FileItem>, String> {
+    let all = list_files_with_details(vault_dir, master_key)?;
+    let q = query.to_lowercase();
+    Ok(all
+        .into_iter()
+        .filter(|item| !item.path.ends_with("/.keep") && item.path.to_lowercase().contains(&q))
+        .collect())
 }
 
 pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>, String> {
@@ -1283,6 +1329,50 @@ mod tests {
         change_vault_password(&test_dir, "bkup_secret", None, "new_secret_pwd", None).unwrap();
         let key_new = unlock_vault(&test_dir, "new_secret_pwd", None).unwrap();
         assert_eq!(key, key_new);
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_format_timestamp() {
+        assert_eq!(format_timestamp(0), "1970-01-01 00:00");
+        assert_eq!(format_timestamp(86400), "1970-01-02 00:00");
+        assert_eq!(format_timestamp(1774353600), "2026-03-24 12:00");
+    }
+
+    #[test]
+    fn test_file_metadata_and_find() {
+        let test_dir = std::env::temp_dir().join("cryptomator_metadata_find_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "find_pw", None).unwrap();
+        let key = unlock_vault(&test_dir, "find_pw", None).unwrap();
+
+        write_file(&test_dir, &key, "notes/finance_2026.pdf", b"Budget 2026").unwrap();
+        write_file(&test_dir, &key, "notes/shopping.txt", b"Milk, Bread").unwrap();
+        write_file(&test_dir, &key, "images/holiday.png", b"PNG_DATA").unwrap();
+
+        let details = list_files_with_details(&test_dir, &key).unwrap();
+        assert_eq!(details.len(), 3);
+        for item in &details {
+            assert!(
+                item.modified.is_some(),
+                "modified timestamp should be populated"
+            );
+            assert!(item.modified.unwrap() > 0);
+        }
+
+        // Test search
+        let finance_matches = find_files(&test_dir, &key, "finance").unwrap();
+        assert_eq!(finance_matches.len(), 1);
+        assert_eq!(finance_matches[0].path, "notes/finance_2026.pdf");
+        assert_eq!(finance_matches[0].size, 11);
+
+        let note_matches = find_files(&test_dir, &key, "notes/").unwrap();
+        assert_eq!(note_matches.len(), 2);
+
+        let no_matches = find_files(&test_dir, &key, "nonexistent").unwrap();
+        assert_eq!(no_matches.len(), 0);
 
         let _ = fs::remove_dir_all(&test_dir);
     }

@@ -377,6 +377,8 @@ fn main() {
                 path,
                 password,
                 keyfile,
+                long,
+                pattern,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -390,20 +392,94 @@ fn main() {
                 };
                 let path_buf = Path::new(&path);
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
-                    Ok(master_key) => match vault::list_files(path_buf, &master_key) {
-                        Ok(files) => {
-                            if files.is_empty() {
-                                println!("Vault is empty.");
+                    Ok(master_key) => match vault::list_files_with_details(path_buf, &master_key) {
+                        Ok(items) => {
+                            let pattern_lower = pattern.as_deref().map(str::to_lowercase);
+                            let visible: Vec<&vault::FileItem> = items
+                                .iter()
+                                .filter(|item| !item.path.ends_with("/.keep"))
+                                .filter(|item| {
+                                    if let Some(ref pat) = pattern_lower {
+                                        item.path.to_lowercase().contains(pat)
+                                    } else {
+                                        true
+                                    }
+                                })
+                                .collect();
+
+                            if visible.is_empty() {
+                                if pattern.is_some() {
+                                    println!("No matching files found.");
+                                } else {
+                                    println!("Vault is empty.");
+                                }
                             } else {
-                                for f in files {
-                                    if !f.ends_with("/.keep") {
-                                        println!("{f}");
+                                for item in visible {
+                                    if long {
+                                        let size_str = format_bytes_cli(item.size);
+                                        let date_str = item
+                                            .modified
+                                            .map(vault::format_timestamp)
+                                            .unwrap_or_else(|| "—".into());
+                                        println!("{size_str:<10} {date_str:<16} {}", item.path);
+                                    } else {
+                                        println!("{}", item.path);
                                     }
                                 }
                             }
                         }
                         Err(e) => {
                             eprintln!("Error listing files: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Find {
+                path,
+                query,
+                password,
+                keyfile,
+                long,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
+                    Ok(master_key) => match vault::find_files(path_buf, &master_key, &query) {
+                        Ok(items) => {
+                            if items.is_empty() {
+                                println!("No files matching '{query}' found.");
+                            } else {
+                                for item in items {
+                                    if long {
+                                        let size_str = format_bytes_cli(item.size);
+                                        let date_str = item
+                                            .modified
+                                            .map(vault::format_timestamp)
+                                            .unwrap_or_else(|| "—".into());
+                                        println!("{size_str:<10} {date_str:<16} {}", item.path);
+                                    } else {
+                                        println!("{}", item.path);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error searching files: {e}");
                             std::process::exit(1);
                         }
                     },

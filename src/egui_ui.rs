@@ -1419,8 +1419,17 @@ impl CryptomatorApp {
                         let icon = file_icon(&file.path);
                         ui.label(RichText::new(icon).size(16.0));
                         ui.label(RichText::new(&file.path).strong());
+                        let size_and_date = if let Some(m) = file.modified {
+                            format!(
+                                "({} • {})",
+                                format_bytes_gui(file.size),
+                                vault::format_timestamp(m)
+                            )
+                        } else {
+                            format!("({})", format_bytes_gui(file.size))
+                        };
                         ui.label(
-                            RichText::new(format!("({})", format_bytes_gui(file.size)))
+                            RichText::new(size_and_date)
                                 .color(Color32::from_rgb(140, 150, 170))
                                 .size(12.0),
                         );
