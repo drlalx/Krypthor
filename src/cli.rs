@@ -374,4 +374,40 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Compute the cryptographic hash (SHA-256) of a decrypted file inside the vault
+    Hash {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Relative path of the file inside the vault
+        #[arg(short, long)]
+        file: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Clean up temporary, incomplete, or orphaned files from the vault's ciphertext storage
+    Prune {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Only show files that would be pruned without deleting them
+        #[arg(long)]
+        dry_run: bool,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }

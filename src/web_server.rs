@@ -110,6 +110,19 @@ pub struct FindQuery {
     pub q: String,
 }
 
+#[derive(Deserialize)]
+pub struct HashQuery {
+    pub path: String,
+    pub file: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PruneRequest {
+    pub vault_path: String,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
 #[derive(Serialize)]
 pub struct FilesResponse {
     pub files: Vec<String>,
@@ -1029,6 +1042,57 @@ async fn system_doctor_handler() -> Json<vault::DoctorReport> {
         .unwrap_or_else(|_| Json(vault::run_doctor(&[])))
 }
 
+async fn hash_file_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<HashQuery>,
+) -> Result<Json<vault::FileHashResult>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked or session expired".into(),
+            }),
+        )
+    })?;
+
+    let vault_path = Path::new(&query.path);
+    let result = vault::hash_file(vault_path, &master_key, &query.file).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(result))
+}
+
+async fn prune_vault_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PruneRequest>,
+) -> Result<Json<vault::PruneReport>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
+
+    let vault_path = Path::new(&payload.vault_path);
+    let report = vault::prune_vault(vault_path, &master_key, payload.dry_run).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(report))
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index_handler))
@@ -1048,6 +1112,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/find", get(find_files_handler))
         .route("/api/vaults/stats", get(vault_stats_handler))
         .route("/api/vaults/verify", get(verify_vault_handler))
+        .route("/api/vaults/prune", post(prune_vault_handler))
+        .route("/api/vaults/hash", get(hash_file_handler))
         .route("/api/vaults/download", get(download_file_handler))
         .route("/api/vaults/export_zip", get(export_zip_handler))
         .route("/api/vaults/preview", get(preview_file_handler))
@@ -1614,6 +1680,53 @@ mod tests {
         let report: vault::IntegrityReport = serde_json::from_slice(&verify_body).unwrap();
         assert!(report.is_healthy);
         assert_eq!(report.corrupted_files.len(), 0);
+
+        // 11b. Hash file via API
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!(
+                        "/api/vaults/hash?path={}&file=folder/.keep",
+                        temp_dir.to_string_lossy()
+                    ))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let hash_body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let hash_data: vault::FileHashResult = serde_json::from_slice(&hash_body).unwrap();
+        assert_eq!(hash_data.file, "folder/.keep");
+        assert!(!hash_data.sha256.is_empty());
+
+        // 11c. Prune vault via API
+        let prune_req = PruneRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+            dry_run: true,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/prune")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&prune_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let prune_body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let prune_report: vault::PruneReport = serde_json::from_slice(&prune_body).unwrap();
+        assert!(prune_report.dry_run);
 
         // 12. System benchmark via API
         let res = router

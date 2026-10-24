@@ -1579,9 +1579,27 @@ impl CryptomatorApp {
                             );
                         });
                     ui.add_space(6.0);
-                    if ui.button("Close Viewer").clicked() {
-                        self.preview_modal_open = false;
-                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Close Viewer").clicked() {
+                            self.preview_modal_open = false;
+                        }
+                        if ui.button("# SHA-256 Hash").clicked() {
+                            match vault::hash_file(vault_path, &master_key, &self.preview_file_name)
+                            {
+                                Ok(res) => {
+                                    ui.ctx().copy_text(res.sha256.clone());
+                                    self.status_message = Some((
+                                        format!("SHA256 ({}): {} (copied)", res.file, res.sha256),
+                                        false,
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Error computing hash: {e}"), true));
+                                }
+                            }
+                        }
+                    });
                 });
             ui.add_space(10.0);
         }

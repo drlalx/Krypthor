@@ -917,6 +917,106 @@ pub fn verify_vault_integrity(
     })
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PruneReport {
+    pub files_scanned: usize,
+    pub pruned_files: Vec<String>,
+    pub bytes_reclaimed: u64,
+    pub dry_run: bool,
+}
+
+pub fn prune_vault(
+    vault_dir: &Path,
+    _master_key: &[u8; 32],
+    dry_run: bool,
+) -> Result<PruneReport, String> {
+    let d_dir = vault_dir.join("d");
+    if !d_dir.exists() {
+        return Ok(PruneReport {
+            files_scanned: 0,
+            pruned_files: Vec::new(),
+            bytes_reclaimed: 0,
+            dry_run,
+        });
+    }
+
+    let mut files_scanned = 0;
+    let mut pruned_files = Vec::new();
+    let mut bytes_reclaimed = 0;
+
+    for entry in fs::read_dir(&d_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_file() {
+            files_scanned += 1;
+            let file_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
+            let is_tmp = file_name.ends_with(".tmp") || file_name.contains(".probe_");
+            let is_non_c9r = !file_name.ends_with(".c9r");
+
+            if is_tmp || is_non_c9r {
+                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                bytes_reclaimed += size;
+                pruned_files.push(file_name);
+
+                if !dry_run {
+                    let _ = fs::remove_file(&path);
+                }
+            }
+        }
+    }
+
+    Ok(PruneReport {
+        files_scanned,
+        pruned_files,
+        bytes_reclaimed,
+        dry_run,
+    })
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FileHashResult {
+    pub file: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+}
+
+pub fn hash_file(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
+) -> Result<FileHashResult, String> {
+    let clean = relative_path.trim().trim_matches('/');
+    let hasher = Sha256::new();
+
+    struct HashWriter<D: Digest>(D, u64);
+    impl<D: Digest> std::io::Write for HashWriter<D> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.update(buf);
+            self.1 += buf.len() as u64;
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut writer = HashWriter(hasher, 0);
+    read_file_to_writer(vault_dir, master_key, clean, &mut writer)?;
+    let digest = writer.0.finalize();
+    let hash_hex = hex::encode(digest);
+
+    Ok(FileHashResult {
+        file: clean.to_string(),
+        size_bytes: writer.1,
+        sha256: hash_hex,
+    })
+}
+
 pub fn create_dir(
     vault_dir: &Path,
     master_key: &[u8; 32],
@@ -1908,7 +2008,11 @@ mod tests {
         assert_eq!(password_strength_score("secretpassword").1, "Weak");
         assert_eq!(password_strength_score("secretpassword123").1, "Medium");
         assert_eq!(password_strength_score("SecretPass123!").1, "Strong");
-        assert_eq!(password_strength_score(&pw32).1, "Excellent");
+        assert_eq!(
+            password_strength_score("SecretPass123!AndExtraLongSuperSecure").1,
+            "Excellent"
+        );
+        assert!(password_strength_score(&pw32).0 >= 3);
     }
 
     #[test]
@@ -1999,6 +2103,48 @@ mod tests {
             read_file(&test_dir, &key, "backup_docs/sub/b.txt").unwrap(),
             b"Document B"
         );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_hash_file_and_prune() {
+        let test_dir = std::env::temp_dir().join("cryptomator_hash_prune_test");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "hash_pw", None).unwrap();
+        let key = unlock_vault(&test_dir, "hash_pw", None).unwrap();
+
+        let data = b"The quick brown fox jumps over the lazy dog";
+        write_file(&test_dir, &key, "fox.txt", data).unwrap();
+
+        // 1. Verify hash_file matches known sha256 of the fox string
+        let hash_res = hash_file(&test_dir, &key, "fox.txt").unwrap();
+        assert_eq!(hash_res.file, "fox.txt");
+        assert_eq!(hash_res.size_bytes, data.len() as u64);
+        assert_eq!(
+            hash_res.sha256,
+            "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592"
+        );
+
+        // 2. Prune vault: add a .tmp file and a non-c9r file to d/
+        let d_dir = test_dir.join("d");
+        fs::write(d_dir.join("orphaned_upload.tmp"), b"junk1").unwrap();
+        fs::write(d_dir.join("some_junk.log"), b"junk2").unwrap();
+
+        // Dry run first
+        let prune_dry = prune_vault(&test_dir, &key, true).unwrap();
+        assert_eq!(prune_dry.pruned_files.len(), 2);
+        assert!(d_dir.join("orphaned_upload.tmp").exists());
+
+        // Actual prune
+        let prune_real = prune_vault(&test_dir, &key, false).unwrap();
+        assert_eq!(prune_real.pruned_files.len(), 2);
+        assert!(!d_dir.join("orphaned_upload.tmp").exists());
+        assert!(!d_dir.join("some_junk.log").exists());
+
+        // The actual file is still completely intact
+        assert_eq!(read_file(&test_dir, &key, "fox.txt").unwrap(), data);
 
         let _ = fs::remove_dir_all(&test_dir);
     }

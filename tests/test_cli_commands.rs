@@ -637,6 +637,76 @@ fn test_cli_vault_workflow() {
     assert!(stdout.contains("\"is_healthy\""));
     assert!(stdout.contains("\"checks\""));
 
+    // 28. Hash command (standard and --json)
+    let output = Command::new(bin_path)
+        .args([
+            "hash",
+            "--path",
+            &vault_path,
+            "--file",
+            "documents/legal/.keep",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute hash command");
+    assert!(
+        output.status.success(),
+        "Hash failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("SHA256:"));
+
+    let output = Command::new(bin_path)
+        .args([
+            "hash",
+            "--path",
+            &vault_path,
+            "--file",
+            "documents/legal/.keep",
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute hash --json command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"sha256\""));
+
+    // 29. Prune command (standard and --json)
+    let output = Command::new(bin_path)
+        .args([
+            "prune",
+            "--path",
+            &vault_path,
+            "--dry-run",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute prune command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Pruning Vault"));
+
+    let output = Command::new(bin_path)
+        .args([
+            "prune",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute prune --json command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"pruned_files\""));
+    assert!(stdout.contains("\"bytes_reclaimed\""));
+
     // Cleanup vault from vaults.json
     let _ = Command::new(bin_path)
         .args(["remove", "--path", &vault_path])

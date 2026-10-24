@@ -739,12 +739,15 @@
       <div class="preview-body" id="previewContent">Lade Vorschau...</div>
       <textarea id="previewEditContent" class="preview-body" style="display: none; width: 100%; height: 55vh; resize: vertical; font-family: monospace;"></textarea>
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
-        <div id="previewEditActions">
+        <div id="previewEditActions" style="display: flex; gap: 8px;">
           <button class="btn btn-secondary btn-sm" id="btnToggleEdit" onclick="toggleEditMode()">
             ✏️ Bearbeiten
           </button>
           <button class="btn btn-primary btn-sm" id="btnSaveEdit" style="display: none;" onclick="saveEditedFile()">
             💾 Speichern
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="handleShowFileHash(currentPreviewFilePath)">
+            # SHA-256
           </button>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="closeModal('previewModal')">Schließen</button>
@@ -1066,12 +1069,52 @@
                   <ul style="margin-top: 4px; padding-left: 20px; font-family: monospace; font-size: 0.8rem;">
                     ${report.orphaned_files.map(o => `<li>${escapeHtml(o)}</li>`).join("")}
                   </ul>
+                  <button class="btn btn-secondary btn-sm" style="margin-top: 8px;" onclick="pruneVault()">
+                    🧹 Verwaiste Dateien bereinigen (Prune)
+                  </button>
                 </div>` : ''}
             </div>
           `;
         }
       } catch (err) {
         box.innerHTML = `<div style="color: var(--danger); padding: 10px;">Fehler bei der Prüfung: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    async function pruneVault() {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      if (!confirm("Möchtest du verwaiste temporäre Dateien aus dem Chiffretext-Speicher unwiderruflich entfernen?")) return;
+
+      try {
+        const res = await fetch("/api/vaults/prune", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vault_path: selectedVault.path, dry_run: false })
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Bereinigung fehlgeschlagen");
+        }
+        const data = await res.json();
+        showToast(`${data.pruned_files.length} verwaiste Datei(en) bereinigt (${formatBytes(data.bytes_reclaimed)} freigegeben)!`, "success");
+        await checkVaultIntegrity();
+      } catch (err) {
+        showToast(err.message, "error");
+      }
+    }
+
+    async function handleShowFileHash(filePath) {
+      if (!selectedVault || !selectedVault.is_unlocked || !filePath) return;
+      try {
+        const res = await fetch(`/api/vaults/hash?path=${encodeURIComponent(selectedVault.path)}&file=${encodeURIComponent(filePath)}`);
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Hash konnte nicht berechnet werden");
+        }
+        const data = await res.json();
+        prompt(`SHA-256 Prüfsumme für "${filePath}" (${formatBytes(data.size_bytes)}):`, data.sha256);
+      } catch (err) {
+        showToast(err.message, "error");
       }
     }
 

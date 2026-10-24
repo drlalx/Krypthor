@@ -16,12 +16,12 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
   - **Passwortänderung & Wiederherstellungsschlüssel**: Bequeme Passwortaktualisierung im laufenden Betrieb sowie Export und Entsperrung via 64-stelligem Recovery-Key.
   - **ZIP-Direktexport**: Entschlüsselter Komplett-Download des Tresors oder einzelner Unterordner als ZIP-Archiv direkt im Browser oder per REST-API (`/api/vaults/export_zip?path=...&subfolder=...`).
   - **Konfigurierbares Auto-Lock**: Automatische Sperrung und sichere Speicherbereinigung entsperrter Tresore bei Inaktivität (wählbar: 5, 15, 30, 60 Minuten oder deaktiviert) mit Status-Badge.
-  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/find`, `/api/vaults/stats`, `/api/vaults/export_zip`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, `/api/vaults/backup_key`, `/api/vaults/restore_key`, `/api/vaults/copy`, `/api/system/benchmark`, `/api/system/doctor`, etc.).
+  - REST-API für Automatisierung (`/api/vaults`, `/api/vaults/rename_vault`, `/api/vaults/unlock`, `/api/vaults/recover`, `/api/vaults/files`, `/api/vaults/find`, `/api/vaults/stats`, `/api/vaults/export_zip`, `/api/vaults/change_password`, `/api/vaults/recovery_key`, `/api/vaults/backup_key`, `/api/vaults/restore_key`, `/api/vaults/copy`, `/api/vaults/hash`, `/api/vaults/prune`, `/api/system/benchmark`, `/api/system/doctor`, etc.).
 - **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal inklusive Inaktivitäts-Auto-Lock.
 - **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via Pure-Rust FUSE (ohne C `libfuse`-Bindung).
 - **Streaming I/O**: Direkte Stream-Verarbeitung (Reader/Writer) für `put`, `cat`, `import` und `export` zur Minimierung der RAM-Auslastung bei großen Datenmengen.
 - **Katastrophenschutz & Resilienz**: Atomare Schreibvorgänge via PID-Temporärdateien (`fs::rename`) sowie automatische Pflege von `masterkey.json.bkup` mit transparentem Fallback-Entsperren.
-- **CLI-Befehle**: Vollwertige Steuerung ohne GUI über 20 Subcommands (`create`, `mount`, `ls`, `find`, `put`, `cat`, `rm`, `cp`, `mv`, `stats`, `mkdir`, `export`, `import`, `verify`, `backup-key`, `restore-key`, `benchmark`, `doctor`, `tui`, `serve`).
+- **CLI-Befehle**: Vollwertige Steuerung ohne GUI über 22 Subcommands (`create`, `mount`, `ls`, `find`, `put`, `cat`, `rm`, `cp`, `mv`, `stats`, `mkdir`, `export`, `import`, `verify`, `backup-key`, `restore-key`, `benchmark`, `doctor`, `hash`, `prune`, `tui`, `serve`).
 - **Sicherheitsarchitektur**:
   - **Schlüsselableitung**: Scrypt (N=16384, r=8, p=1) mit optionaler Unterstützung für Schlüsseldateien (Keyfiles).
   - **Dateiverschlüsselung**: Authenticated Encryption mit AES-256-GCM. Jede Datei enthält einen zufälligen 12-Byte-Nonce und verschlüsselte Pfadmetadaten.
@@ -268,6 +268,24 @@ Prüft das Dateisystem, FUSE-Rechte (`/dev/fuse`), CSPRNG-Zufallsgeneratoren sow
 cargo run --release -- doctor
 # Maschinenlesbare Ausgabe als JSON:
 cargo run --release -- doctor --json
+```
+
+#### SHA-256 Prüfsumme einer Datei im Tresor berechnen (hash)
+Berechnet den SHA-256 Hash direkt aus dem verschlüsselten Tresor im Streaming-Verfahren, ohne die Datei auf die Festplatte zu entschlüsseln:
+```bash
+cargo run --release -- hash --path "/pfad/zum/tresor" --file "dokumente/rechnung.pdf"
+# Maschinenlesbare Ausgabe als JSON:
+cargo run --release -- hash --path "/pfad/zum/tresor" --file "dokumente/rechnung.pdf" --json
+```
+
+#### Verwaiste und temporäre Fragmente bereinigen (prune)
+Entfernt unvollständige Upload-Fragmente (`.tmp`) und verwaiste Dateien aus dem Speicherverzeichnis `d/`:
+```bash
+# Vorschau ohne Löschung (--dry-run)
+cargo run --release -- prune --path "/pfad/zum/tresor" --dry-run
+
+# Tatsächliche Bereinigung
+cargo run --release -- prune --path "/pfad/zum/tresor"
 ```
 
 ## Projektstruktur

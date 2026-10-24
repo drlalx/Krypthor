@@ -1132,6 +1132,103 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Hash {
+                path,
+                file,
+                password,
+                keyfile,
+                json,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
+                    Ok(master_key) => match vault::hash_file(path_buf, &master_key, &file) {
+                        Ok(res) => {
+                            if json {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&res)
+                                        .unwrap_or_else(|_| "{}".into())
+                                );
+                            } else {
+                                println!("File:   {}", res.file);
+                                println!("Size:   {}", format_bytes_cli(res.size_bytes));
+                                println!("SHA256: {}", res.sha256);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error computing hash: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Prune {
+                path,
+                dry_run,
+                password,
+                keyfile,
+                json,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
+                    Ok(master_key) => match vault::prune_vault(path_buf, &master_key, dry_run) {
+                        Ok(report) => {
+                            if json {
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&report)
+                                        .unwrap_or_else(|_| "{}".into())
+                                );
+                            } else {
+                                println!("Pruning Vault '{}' (dry_run: {}):", path, report.dry_run);
+                                println!("  Storage files scanned: {}", report.files_scanned);
+                                println!("  Orphaned files found:  {}", report.pruned_files.len());
+                                println!(
+                                    "  Space reclaimed:       {}",
+                                    format_bytes_cli(report.bytes_reclaimed)
+                                );
+                                for f in &report.pruned_files {
+                                    println!("    - {f}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Error pruning vault: {e}");
+                            std::process::exit(1);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 
