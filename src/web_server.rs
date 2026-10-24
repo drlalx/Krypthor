@@ -125,6 +125,13 @@ pub struct HashQuery {
     pub file: String,
 }
 
+#[derive(Deserialize)]
+pub struct DiffQuery {
+    pub path: String,
+    pub file_a: String,
+    pub file_b: String,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct PruneRequest {
     pub vault_path: String,
@@ -458,6 +465,31 @@ async fn grep_files_handler(
     })?;
 
     Ok(Json(results))
+}
+
+async fn diff_files_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DiffQuery>,
+) -> Result<Json<vault::DiffResult>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked or session expired".into(),
+            }),
+        )
+    })?;
+
+    let vault_path = Path::new(&query.path);
+    let diff = vault::diff_vault_files(vault_path, &master_key, &query.file_a, &query.file_b)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
+
+    Ok(Json(diff))
 }
 
 async fn vault_stats_handler(
@@ -1152,6 +1184,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/files", get(list_files_handler))
         .route("/api/vaults/find", get(find_files_handler))
         .route("/api/vaults/grep", get(grep_files_handler))
+        .route("/api/vaults/diff", get(diff_files_handler))
         .route("/api/vaults/stats", get(vault_stats_handler))
         .route("/api/vaults/verify", get(verify_vault_handler))
         .route("/api/vaults/prune", post(prune_vault_handler))
@@ -2188,6 +2221,112 @@ mod tests {
             .unwrap();
         let grep_res: Vec<crate::vault::FileGrepResult> = serde_json::from_slice(&body).unwrap();
         assert!(grep_res.is_empty());
+
+        // Cleanup
+        save_saved_vaults(&original_saved);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_web_api_diff() {
+        let _guard = TEST_LOCK.lock().await;
+        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_diff");
+        if temp_dir.exists() {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+        }
+        let original_saved = load_saved_vaults();
+
+        let state = Arc::new(AppState::default());
+        let router = build_router(state.clone());
+
+        // 1. Create and unlock vault
+        let create_req = AddVaultRequest {
+            name: "DiffTestVault".to_string(),
+            path: temp_dir.to_string_lossy().to_string(),
+            password: Some("diffpass".to_string()),
+            create_new: true,
+            keyfile: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&create_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let unlock_req = UnlockVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+            password: "diffpass".to_string(),
+            keyfile: None,
+            timeout_minutes: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 2. Write two files
+        let key = state
+            .get_master_key(&temp_dir.to_string_lossy())
+            .await
+            .unwrap();
+        crate::vault::write_file(
+            &temp_dir,
+            &key,
+            "version1.txt",
+            b"Line 1: A\nLine 2: B\nLine 3: C",
+        )
+        .unwrap();
+        crate::vault::write_file(
+            &temp_dir,
+            &key,
+            "version2.txt",
+            b"Line 1: A\nLine 2: B modified\nLine 3: C",
+        )
+        .unwrap();
+
+        // 3. Call diff endpoint
+        let uri = format!(
+            "/api/vaults/diff?path={}&file_a=version1.txt&file_b=version2.txt",
+            temp_dir.to_string_lossy()
+        );
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(&uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let diff_res: crate::vault::DiffResult = serde_json::from_slice(&body).unwrap();
+        assert!(!diff_res.are_identical);
+        assert_eq!(diff_res.additions, 1);
+        assert_eq!(diff_res.deletions, 1);
+        assert!(diff_res.unified_diff.contains("-Line 2: B"));
+        assert!(diff_res.unified_diff.contains("+Line 2: B modified"));
 
         // Cleanup
         save_saved_vaults(&original_saved);

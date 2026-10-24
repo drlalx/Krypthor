@@ -1352,6 +1352,88 @@ fn main() {
                 }
                 return;
             }
+            cli::Commands::Completions { shell } => {
+                use clap::CommandFactory;
+                let mut cmd = cli::CliArgs::command();
+                clap_complete::generate(shell, &mut cmd, "cryptomator_rs", &mut std::io::stdout());
+                return;
+            }
+            cli::Commands::Diff {
+                path,
+                vault_file,
+                vault_file2,
+                local,
+                password,
+                keyfile,
+                json,
+            } => {
+                let pwd = match password {
+                    Some(p) => p,
+                    None => {
+                        print!("Enter vault password: ");
+                        let _ = std::io::stdout().flush();
+                        let mut p = String::new();
+                        let _ = std::io::stdin().read_line(&mut p);
+                        p.trim().to_string()
+                    }
+                };
+                let path_buf = Path::new(&path);
+                match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
+                    Ok(master_key) => {
+                        let diff_result = match (vault_file2.as_deref(), local.as_deref()) {
+                            (Some(vf2), None) => {
+                                vault::diff_vault_files(path_buf, &master_key, &vault_file, vf2)
+                            }
+                            (None, Some(loc)) => vault::diff_vault_with_local(
+                                path_buf,
+                                &master_key,
+                                &vault_file,
+                                Path::new(loc),
+                            ),
+                            (Some(_), Some(_)) => {
+                                eprintln!("Error: Cannot specify both --vault-file2 and --local.");
+                                std::process::exit(1);
+                            }
+                            (None, None) => {
+                                eprintln!("Error: Must specify either --vault-file2 or --local.");
+                                std::process::exit(1);
+                            }
+                        };
+
+                        match diff_result {
+                            Ok(res) => {
+                                if json {
+                                    println!(
+                                        "{}",
+                                        serde_json::to_string_pretty(&res)
+                                            .unwrap_or_else(|_| "{}".into())
+                                    );
+                                } else if res.are_identical {
+                                    println!(
+                                        "Files '{}' and '{}' are identical.",
+                                        res.label_a, res.label_b
+                                    );
+                                } else {
+                                    println!(
+                                        "Diff: {} (+{} / -{} lines)",
+                                        vault_file, res.additions, res.deletions
+                                    );
+                                    println!("{}", res.unified_diff);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Diff failed: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Unlock failed: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
         }
     }
 

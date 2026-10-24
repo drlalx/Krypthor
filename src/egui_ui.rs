@@ -117,6 +117,12 @@ struct CryptomatorApp {
     grep_case_sensitive: bool,
     grep_results: Vec<vault::FileGrepResult>,
 
+    // File comparison (Diff) modal
+    diff_modal_open: bool,
+    diff_file_a: String,
+    diff_file_b: String,
+    diff_result: Option<vault::DiffResult>,
+
     // Throughput & activity stats
     throughput_history: VecDeque<f32>,
     active_read_speed: f32,
@@ -215,6 +221,11 @@ impl CryptomatorApp {
             grep_pattern: String::new(),
             grep_case_sensitive: false,
             grep_results: Vec::new(),
+
+            diff_modal_open: false,
+            diff_file_a: String::new(),
+            diff_file_b: String::new(),
+            diff_result: None,
 
             throughput_history,
             active_read_speed: 0.0,
@@ -1613,6 +1624,12 @@ impl CryptomatorApp {
                                 }
                             }
                         }
+                        if ui.button("⚖️ Compare (Diff)").clicked() {
+                            self.diff_file_a = self.preview_file_name.clone();
+                            self.diff_file_b = String::new();
+                            self.diff_result = None;
+                            self.diff_modal_open = true;
+                        }
                     });
                 });
             ui.add_space(10.0);
@@ -1691,6 +1708,80 @@ impl CryptomatorApp {
                                     ui.add_space(4.0);
                                 }
                             });
+                    }
+                });
+            ui.add_space(10.0);
+        }
+
+        if self.diff_modal_open {
+            Card::new()
+                .heading("File Comparison (Diff)")
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("File A:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.diff_file_a).desired_width(140.0),
+                        );
+                        ui.label("File B:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.diff_file_b).desired_width(140.0),
+                        );
+                        if ui.button("Compare").clicked()
+                            && !self.diff_file_a.is_empty()
+                            && !self.diff_file_b.is_empty()
+                        {
+                            match vault::diff_vault_files(
+                                vault_path,
+                                &master_key,
+                                &self.diff_file_a,
+                                &self.diff_file_b,
+                            ) {
+                                Ok(res) => self.diff_result = Some(res),
+                                Err(e) => {
+                                    self.status_message = Some((format!("Diff failed: {e}"), true));
+                                }
+                            }
+                        }
+                        if ui.button("Close").clicked() {
+                            self.diff_modal_open = false;
+                        }
+                    });
+                    ui.add_space(8.0);
+                    if let Some(ref diff) = self.diff_result {
+                        if diff.are_identical {
+                            ui.label(
+                                RichText::new("✓ Files are identical")
+                                    .color(Color32::from_rgb(16, 185, 129))
+                                    .strong(),
+                            );
+                        } else {
+                            ui.label(
+                                RichText::new(format!(
+                                    "Changes: +{} / -{} lines",
+                                    diff.additions, diff.deletions
+                                ))
+                                .strong(),
+                            );
+                            egui::ScrollArea::vertical()
+                                .max_height(250.0)
+                                .show(ui, |ui| {
+                                    for line in diff.unified_diff.lines() {
+                                        let color = if line.starts_with('+')
+                                            && !line.starts_with("+++")
+                                        {
+                                            Color32::from_rgb(16, 185, 129)
+                                        } else if line.starts_with('-') && !line.starts_with("---")
+                                        {
+                                            Color32::from_rgb(239, 68, 68)
+                                        } else if line.starts_with("@@") {
+                                            Color32::from_rgb(6, 182, 212)
+                                        } else {
+                                            Color32::LIGHT_GRAY
+                                        };
+                                        ui.label(RichText::new(line).color(color).monospace());
+                                    }
+                                });
+                        }
                     }
                 });
             ui.add_space(10.0);

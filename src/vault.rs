@@ -893,6 +893,189 @@ pub fn grep_vault(
     Ok(results)
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct DiffChunk {
+    pub old_start: usize,
+    pub old_lines: usize,
+    pub new_start: usize,
+    pub new_lines: usize,
+    pub lines: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct DiffResult {
+    pub are_identical: bool,
+    pub label_a: String,
+    pub label_b: String,
+    pub additions: usize,
+    pub deletions: usize,
+    pub chunks: Vec<DiffChunk>,
+    pub unified_diff: String,
+}
+
+pub fn compute_unified_diff(
+    text_a: &str,
+    text_b: &str,
+    label_a: &str,
+    label_b: &str,
+) -> DiffResult {
+    if text_a == text_b {
+        return DiffResult {
+            are_identical: true,
+            label_a: label_a.to_string(),
+            label_b: label_b.to_string(),
+            additions: 0,
+            deletions: 0,
+            chunks: Vec::new(),
+            unified_diff: String::new(),
+        };
+    }
+
+    let lines_a: Vec<&str> = text_a.lines().collect();
+    let lines_b: Vec<&str> = text_b.lines().collect();
+
+    let n = lines_a.len();
+    let m = lines_b.len();
+
+    let max_lines = 1000;
+    let clamped_n = n.min(max_lines);
+    let clamped_m = m.min(max_lines);
+
+    let mut dp = vec![vec![0u32; clamped_m + 1]; clamped_n + 1];
+
+    for i in 0..clamped_n {
+        for j in 0..clamped_m {
+            if lines_a[i] == lines_b[j] {
+                dp[i + 1][j + 1] = dp[i][j] + 1;
+            } else {
+                dp[i + 1][j + 1] = dp[i + 1][j].max(dp[i][j + 1]);
+            }
+        }
+    }
+
+    let mut edits: Vec<(char, String)> = Vec::new();
+    let mut i = clamped_n;
+    let mut j = clamped_m;
+
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && lines_a[i - 1] == lines_b[j - 1] {
+            edits.push((' ', lines_a[i - 1].to_string()));
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
+            edits.push(('+', lines_b[j - 1].to_string()));
+            j -= 1;
+        } else if i > 0 && (j == 0 || dp[i][j - 1] < dp[i - 1][j]) {
+            edits.push(('-', lines_a[i - 1].to_string()));
+            i -= 1;
+        }
+    }
+
+    edits.reverse();
+
+    let mut additions = 0;
+    let mut deletions = 0;
+    let mut diff_lines = Vec::new();
+
+    diff_lines.push(format!("--- {}", label_a));
+    diff_lines.push(format!("+++ {}", label_b));
+
+    let mut chunk_lines = Vec::new();
+    for (op, line) in edits {
+        match op {
+            '+' => {
+                additions += 1;
+                chunk_lines.push(format!("+{}", line));
+            }
+            '-' => {
+                deletions += 1;
+                chunk_lines.push(format!("-{}", line));
+            }
+            ' ' => {
+                chunk_lines.push(format!(" {}", line));
+            }
+            _ => {}
+        }
+    }
+
+    let header = format!(
+        "@@ -1,{} +1,{} @@",
+        lines_a.len().max(1),
+        lines_b.len().max(1)
+    );
+    diff_lines.push(header);
+    diff_lines.extend(chunk_lines.clone());
+
+    let unified_diff = diff_lines.join("\n");
+
+    let chunk = DiffChunk {
+        old_start: 1,
+        old_lines: lines_a.len(),
+        new_start: 1,
+        new_lines: lines_b.len(),
+        lines: chunk_lines,
+    };
+
+    DiffResult {
+        are_identical: false,
+        label_a: label_a.to_string(),
+        label_b: label_b.to_string(),
+        additions,
+        deletions,
+        chunks: vec![chunk],
+        unified_diff,
+    }
+}
+
+pub fn diff_vault_files(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    file_a: &str,
+    file_b: &str,
+) -> Result<DiffResult, String> {
+    let content_a = read_file(vault_dir, master_key, file_a)?;
+    let content_b = read_file(vault_dir, master_key, file_b)?;
+
+    let text_a = std::str::from_utf8(&content_a)
+        .map_err(|_| format!("File '{file_a}' is a binary file; text diff not supported"))?;
+    let text_b = std::str::from_utf8(&content_b)
+        .map_err(|_| format!("File '{file_b}' is a binary file; text diff not supported"))?;
+
+    Ok(compute_unified_diff(
+        text_a,
+        text_b,
+        &format!("vault:{}", file_a),
+        &format!("vault:{}", file_b),
+    ))
+}
+
+pub fn diff_vault_with_local(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    vault_file: &str,
+    local_path: &Path,
+) -> Result<DiffResult, String> {
+    let content_vault = read_file(vault_dir, master_key, vault_file)?;
+    let content_local = fs::read(local_path)
+        .map_err(|e| format!("Failed to read local file '{}': {e}", local_path.display()))?;
+
+    let text_vault = std::str::from_utf8(&content_vault)
+        .map_err(|_| format!("Vault file '{vault_file}' is binary; text diff not supported"))?;
+    let text_local = std::str::from_utf8(&content_local).map_err(|_| {
+        format!(
+            "Local file '{}' is binary; text diff not supported",
+            local_path.display()
+        )
+    })?;
+
+    Ok(compute_unified_diff(
+        text_vault,
+        text_local,
+        &format!("vault:{}", vault_file),
+        &format!("local:{}", local_path.display()),
+    ))
+}
+
 pub fn list_files(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<String>, String> {
     Ok(list_files_with_details(vault_dir, master_key)?
         .into_iter()
@@ -2328,6 +2511,51 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_diff_vault_files_and_local() {
+        let test_dir = std::env::temp_dir().join("cryptomator_test_diff");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "diff_pass", None).unwrap();
+        let key = unlock_vault(&test_dir, "diff_pass", None).unwrap();
+
+        let v1 = "Line 1: Alpha\nLine 2: Beta\nLine 3: Gamma";
+        let v2 = "Line 1: Alpha\nLine 2: Beta modified\nLine 3: Gamma\nLine 4: Delta";
+        write_file(&test_dir, &key, "doc_v1.txt", v1.as_bytes()).unwrap();
+        write_file(&test_dir, &key, "doc_v2.txt", v2.as_bytes()).unwrap();
+
+        // 1. Identical files
+        let diff_same = diff_vault_files(&test_dir, &key, "doc_v1.txt", "doc_v1.txt").unwrap();
+        assert!(diff_same.are_identical);
+        assert_eq!(diff_same.additions, 0);
+        assert_eq!(diff_same.deletions, 0);
+
+        // 2. Diff between two vault files
+        let diff_v1_v2 = diff_vault_files(&test_dir, &key, "doc_v1.txt", "doc_v2.txt").unwrap();
+        assert!(!diff_v1_v2.are_identical);
+        assert!(diff_v1_v2.additions >= 2); // modified line + delta
+        assert!(diff_v1_v2.deletions >= 1);
+        assert!(diff_v1_v2.unified_diff.contains("--- vault:doc_v1.txt"));
+        assert!(diff_v1_v2.unified_diff.contains("+++ vault:doc_v2.txt"));
+        assert!(diff_v1_v2.unified_diff.contains("-Line 2: Beta"));
+        assert!(diff_v1_v2.unified_diff.contains("+Line 2: Beta modified"));
+
+        // 3. Diff vault file with local file
+        let local_file = test_dir.join("local_doc.txt");
+        fs::write(&local_file, b"Line 1: Alpha\nLine 2: Beta local").unwrap();
+        let diff_local = diff_vault_with_local(&test_dir, &key, "doc_v1.txt", &local_file).unwrap();
+        assert!(!diff_local.are_identical);
+        assert!(diff_local.unified_diff.contains("--- vault:doc_v1.txt"));
+        assert!(diff_local.unified_diff.contains("+++ local:"));
+
+        // 4. Binary file check
+        write_file(&test_dir, &key, "binary.dat", &[0x00, 0x99, 0xFF]).unwrap();
+        let bin_err = diff_vault_files(&test_dir, &key, "doc_v1.txt", "binary.dat").unwrap_err();
+        assert!(bin_err.contains("binary file"));
 
         let _ = fs::remove_dir_all(&test_dir);
     }

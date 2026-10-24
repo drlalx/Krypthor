@@ -23,6 +23,7 @@ rand = "0.8"
 sha2 = "0.10"
 rfd = "0.14"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 ratatui = { version = "0.26", optional = true }
 crossterm = { version = "0.27", optional = true }
 egui = { version = "0.36", optional = true }

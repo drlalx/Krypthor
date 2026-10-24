@@ -446,4 +446,34 @@ pub enum Commands {
         #[arg(short, long)]
         force: bool,
     },
+    /// Generate shell completion script to stdout (Bash, Zsh, Fish, Elvish, PowerShell)
+    Completions {
+        /// Target shell for autocompletion
+        #[arg(short, long, value_enum)]
+        shell: clap_complete::Shell,
+    },
+    /// Compare text files inside the vault or compare a vault file with a local file
+    Diff {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Relative path of file inside the vault
+        #[arg(short = 'f', long)]
+        vault_file: String,
+        /// Second file inside the vault to compare against (mutually exclusive with --local)
+        #[arg(long)]
+        vault_file2: Option<String>,
+        /// Path to a local file to compare against (mutually exclusive with --vault-file2)
+        #[arg(short = 'l', long)]
+        local: Option<String>,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }

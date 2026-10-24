@@ -313,6 +313,63 @@ fn test_cli_vault_workflow() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Error unmounting"));
 
+    // 9f. Test completions generation (Bash)
+    let output = Command::new(bin_path)
+        .args(["completions", "--shell", "bash"])
+        .output()
+        .expect("Failed to execute completions command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("complete -F _cryptomator_rs"));
+
+    // 9g. Test diff between vault file and local file
+    let local_diff_file = test_dir.join("local_finances.txt");
+    std::fs::write(
+        &local_diff_file,
+        b"Confidential financial data modified\nNew second line",
+    )
+    .unwrap();
+    let output = Command::new(bin_path)
+        .args([
+            "diff",
+            "--path",
+            &vault_path,
+            "--vault-file",
+            "finances/report.txt",
+            "--local",
+            &local_diff_file.to_string_lossy(),
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute diff command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Diff: finances/report.txt"));
+    assert!(stdout.contains("-Confidential financial data"));
+    assert!(stdout.contains("+Confidential financial data modified"));
+
+    // 9h. Test diff with JSON format
+    let output = Command::new(bin_path)
+        .args([
+            "diff",
+            "--path",
+            &vault_path,
+            "--vault-file",
+            "finances/report.txt",
+            "--local",
+            &local_diff_file.to_string_lossy(),
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute diff --json command");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"are_identical\": false"));
+    assert!(stdout.contains("\"additions\":"));
+
     // 10. Check stats via CLI
     let output = Command::new(bin_path)
         .args([

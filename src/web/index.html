@@ -756,6 +756,9 @@
           <button class="btn btn-secondary btn-sm" onclick="handleShowFileHash(currentPreviewFilePath)">
             # SHA-256
           </button>
+          <button class="btn btn-secondary btn-sm" onclick="openDiffModalForFile(currentPreviewFilePath)">
+            ⚖️ Diff
+          </button>
         </div>
         <button class="btn btn-secondary btn-sm" onclick="closeModal('previewModal')">Schließen</button>
       </div>
@@ -906,6 +909,38 @@
       </div>
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px;">
         <button class="btn btn-primary" onclick="closeModal('grepModal')">Schließen</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Diff Modal -->
+  <div class="modal-backdrop" id="diffModal">
+    <div class="modal-card modal-card-lg" style="max-width: 850px;">
+      <div class="modal-header">
+        <div class="modal-title">⚖️ Dateivergleich (Diff)</div>
+        <button class="modal-close" onclick="closeModal('diffModal')">&times;</button>
+      </div>
+      <div style="padding: 10px 0;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; margin-bottom: 12px; align-items: end;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Basisdatei (A)</label>
+            <input type="text" id="diffFileAInput" class="form-input" placeholder="z. B. version1.txt">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label class="form-label">Vergleichsdatei (B)</label>
+            <input type="text" id="diffFileBInput" class="form-input" placeholder="z. B. version2.txt">
+          </div>
+          <button class="btn btn-primary" style="height: 36px;" onclick="executeVaultDiff()">Vergleichen</button>
+        </div>
+        <div id="diffSummaryBadge" style="display: none; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 0.85rem;"></div>
+        <div id="diffResultsBody" style="max-height: 450px; overflow-y: auto; background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 6px; padding: 12px; font-family: monospace; font-size: 0.82rem; white-space: pre-wrap; line-height: 1.45;">
+          <div style="text-align: center; color: var(--text-muted); padding: 25px;">
+            Wähle zwei Textdateien aus, um die Unterschiede anzuzeigen.
+          </div>
+        </div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px;">
+        <button class="btn btn-primary" onclick="closeModal('diffModal')">Schließen</button>
       </div>
     </div>
   </div>
@@ -1121,6 +1156,78 @@
           html += `</div></div>`;
         });
 
+        box.innerHTML = html;
+      } catch (err) {
+        box.innerHTML = `<div style="color: var(--danger-color); padding: 15px;">Fehler: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function openDiffModalForFile(path) {
+      closeModal('previewModal');
+      openModal('diffModal');
+      document.getElementById('diffFileAInput').value = path || '';
+      document.getElementById('diffFileBInput').value = '';
+      document.getElementById('diffSummaryBadge').style.display = 'none';
+      document.getElementById('diffResultsBody').innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 25px;">Gib eine zweite Datei an, um den Unterschied zu <strong>${escapeHtml(path)}</strong> anzuzeigen.</div>`;
+    }
+
+    function openDiffModal() {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      openModal('diffModal');
+      document.getElementById('diffSummaryBadge').style.display = 'none';
+      document.getElementById('diffResultsBody').innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 25px;">Wähle zwei Textdateien aus, um die Unterschiede anzuzeigen.</div>`;
+    }
+
+    async function executeVaultDiff() {
+      if (!selectedVault || !selectedVault.is_unlocked) return;
+      const fileA = document.getElementById('diffFileAInput').value.trim();
+      const fileB = document.getElementById('diffFileBInput').value.trim();
+      if (!fileA || !fileB) {
+        showToast("Bitte gib zwei Dateipfade an", "error");
+        return;
+      }
+
+      const box = document.getElementById('diffResultsBody');
+      const badgeBox = document.getElementById('diffSummaryBadge');
+      box.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 25px;">Vergleiche Dateien...</div>`;
+      badgeBox.style.display = 'none';
+
+      try {
+        const res = await fetch(`/api/vaults/diff?path=${encodeURIComponent(selectedVault.path)}&file_a=${encodeURIComponent(fileA)}&file_b=${encodeURIComponent(fileB)}`);
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.error || "Diff fehlgeschlagen");
+        }
+        const diff = await res.json();
+        if (diff.are_identical) {
+          badgeBox.style.display = 'flex';
+          badgeBox.innerHTML = `<span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">✓ Dateien sind identisch</span>`;
+          box.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 25px;">Keine Unterschiede zwischen den Dateien gefunden.</div>`;
+          return;
+        }
+
+        badgeBox.style.display = 'flex';
+        badgeBox.innerHTML = `
+          <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">+${diff.additions} Zeilen</span>
+          <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #ef4444;">-${diff.deletions} Zeilen</span>
+          <span style="color: var(--text-muted); font-size: 0.8rem;">${escapeHtml(diff.label_a)} ➔ ${escapeHtml(diff.label_b)}</span>
+        `;
+
+        const lines = diff.unified_diff.split('\n');
+        let html = '';
+        lines.forEach(l => {
+          if (l.startsWith('+') && !l.startsWith('+++')) {
+            html += `<div style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 1px 4px; border-radius: 2px;">${escapeHtml(l)}</div>`;
+          } else if (l.startsWith('-') && !l.startsWith('---')) {
+            html += `<div style="background: rgba(239, 68, 68, 0.15); color: #ef4444; padding: 1px 4px; border-radius: 2px;">${escapeHtml(l)}</div>`;
+          } else if (l.startsWith('@@')) {
+            html += `<div style="color: #06b6d4; font-weight: bold; margin: 4px 0 2px 0;">${escapeHtml(l)}</div>`;
+          } else if (l.startsWith('---') || l.startsWith('+++')) {
+            html += `<div style="color: var(--text-muted); font-weight: bold;">${escapeHtml(l)}</div>`;
+          } else {
+            html += `<div style="color: var(--text-color); opacity: 0.8; padding: 1px 4px;">${escapeHtml(l)}</div>`;
+          }
+        });
         box.innerHTML = html;
       } catch (err) {
         box.innerHTML = `<div style="color: var(--danger-color); padding: 15px;">Fehler: ${escapeHtml(err.message)}</div>`;
