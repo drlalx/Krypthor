@@ -217,6 +217,9 @@ pub enum Commands {
         /// Recursively delete directories and their contents
         #[arg(short = 'r', long)]
         recursive: bool,
+        /// Permanently delete instead of moving to trash
+        #[arg(long)]
+        permanent: bool,
         /// Password (if not provided, you will be prompted)
         #[arg(long)]
         password: Option<String>,
@@ -475,5 +478,54 @@ pub enum Commands {
         /// Format output as JSON
         #[arg(long)]
         json: bool,
+    },
+    /// Manage the vault's trash (recycle bin for deleted files)
+    #[command(subcommand)]
+    Trash(TrashCommands),
+}
+
+#[derive(Subcommand, Debug, Clone)]
+pub enum TrashCommands {
+    /// List all files currently in the vault's trash
+    List {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Restore a file or directory from the trash back into the vault
+    Restore {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Trash path (e.g. .trash/1729780000##documents/report.txt)
+        #[arg(short = 't', long)]
+        trash_path: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+    },
+    /// Permanently purge and delete all files in the trash
+    Empty {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
     },
 }

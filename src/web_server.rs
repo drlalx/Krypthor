@@ -151,10 +151,23 @@ pub struct DownloadQuery {
     pub file_path: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct DeleteFileRequest {
     pub vault_path: String,
     pub file_path: String,
+    #[serde(default)]
+    pub permanent: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RestoreTrashRequest {
+    pub vault_path: String,
+    pub trash_path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct EmptyTrashRequest {
+    pub vault_path: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -405,6 +418,11 @@ async fn list_files_handler(
             Json(ErrorResponse { error: e }),
         )
     })?;
+
+    let items: Vec<vault::FileItem> = items
+        .into_iter()
+        .filter(|item| !item.path.starts_with(".trash/"))
+        .collect();
 
     let files = items.iter().map(|item| item.path.clone()).collect();
     Ok(Json(FilesResponse { files, items }))
@@ -720,21 +738,124 @@ async fn delete_file_handler(
 
     let vault_dir = Path::new(&payload.vault_path);
     let trimmed = payload.file_path.trim().trim_matches('/');
-    let file_res = vault::delete_file(vault_dir, &master_key, trimmed);
-    if file_res.is_err() {
-        vault::delete_dir(vault_dir, &master_key, trimmed).map_err(|e| {
+
+    if payload.permanent {
+        let file_res = vault::delete_file(vault_dir, &master_key, trimmed);
+        if file_res.is_err() {
+            vault::delete_dir(vault_dir, &master_key, trimmed).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error: e }),
+                )
+            })?;
+        } else {
+            let _ = vault::delete_dir(vault_dir, &master_key, trimmed);
+        }
+
+        Ok(Json(GenericSuccessResponse {
+            success: true,
+            message: "File or directory permanently deleted".into(),
+        }))
+    } else {
+        let file_res = vault::move_to_trash(vault_dir, &master_key, trimmed);
+        if file_res.is_err() {
+            vault::move_dir_to_trash(vault_dir, &master_key, trimmed).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error: e }),
+                )
+            })?;
+        }
+
+        Ok(Json(GenericSuccessResponse {
+            success: true,
+            message: "Moved to trash successfully".into(),
+        }))
+    }
+}
+
+async fn list_trash_handler(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<FilesQuery>,
+) -> Result<Json<Vec<vault::TrashItem>>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state.get_master_key(&query.path).await.ok_or_else(|| {
+        (
+            StatusCode::UNAUTHORIZED,
+            Json(ErrorResponse {
+                error: "Vault is locked or session expired".into(),
+            }),
+        )
+    })?;
+
+    let vault_dir = Path::new(&query.path);
+    let items = vault::list_trash(vault_dir, &master_key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(items))
+}
+
+async fn restore_trash_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<RestoreTrashRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
+
+    let vault_dir = Path::new(&payload.vault_path);
+    let restored =
+        vault::restore_trash_item(vault_dir, &master_key, &payload.trash_path).map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse { error: e }),
             )
         })?;
-    } else {
-        let _ = vault::delete_dir(vault_dir, &master_key, trimmed);
-    }
 
     Ok(Json(GenericSuccessResponse {
         success: true,
-        message: "File or directory deleted successfully".into(),
+        message: format!("Restored to '{restored}'"),
+    }))
+}
+
+async fn empty_trash_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<EmptyTrashRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
+
+    let vault_dir = Path::new(&payload.vault_path);
+    let count = vault::empty_trash(vault_dir, &master_key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: format!("Emptied {count} item(s) from trash"),
     }))
 }
 
@@ -1197,6 +1318,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/rename", post(rename_file_handler))
         .route("/api/vaults/copy", post(copy_file_handler))
         .route("/api/vaults/delete", post(delete_file_handler))
+        .route("/api/vaults/trash", get(list_trash_handler))
+        .route("/api/vaults/trash/restore", post(restore_trash_handler))
+        .route("/api/vaults/trash/empty", post(empty_trash_handler))
         .route("/api/vaults/change_password", post(change_password_handler))
         .route("/api/vaults/recovery_key", post(recovery_key_handler))
         .route("/api/vaults/backup_key", post(backup_key_handler))
@@ -2327,6 +2451,174 @@ mod tests {
         assert_eq!(diff_res.deletions, 1);
         assert!(diff_res.unified_diff.contains("-Line 2: B"));
         assert!(diff_res.unified_diff.contains("+Line 2: B modified"));
+
+        // Cleanup
+        save_saved_vaults(&original_saved);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_web_api_trash() {
+        let _guard = TEST_LOCK.lock().await;
+        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_trash");
+        if temp_dir.exists() {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+        }
+        let original_saved = load_saved_vaults();
+
+        let state = Arc::new(AppState::default());
+        let router = build_router(state.clone());
+
+        // 1. Create and unlock vault
+        let create_req = AddVaultRequest {
+            name: "TrashTestVault".to_string(),
+            path: temp_dir.to_string_lossy().to_string(),
+            password: Some("trashpass".to_string()),
+            create_new: true,
+            keyfile: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&create_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let unlock_req = UnlockVaultRequest {
+            path: temp_dir.to_string_lossy().to_string(),
+            password: "trashpass".to_string(),
+            keyfile: None,
+            timeout_minutes: None,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/unlock")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&unlock_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 2. Write file
+        let key = state
+            .get_master_key(&temp_dir.to_string_lossy())
+            .await
+            .unwrap();
+        crate::vault::write_file(&temp_dir, &key, "temp_trash_note.txt", b"Recoverable text")
+            .unwrap();
+
+        // 3. Move to trash via DELETE endpoint (permanent: false)
+        let del_req = DeleteFileRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+            file_path: "temp_trash_note.txt".to_string(),
+            permanent: false,
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/delete")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&del_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        // 4. Query trash endpoint
+        let uri = format!("/api/vaults/trash?path={}", temp_dir.to_string_lossy());
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(&uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let trash_items: Vec<crate::vault::TrashItem> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(trash_items.len(), 1);
+        assert_eq!(trash_items[0].original_path, "temp_trash_note.txt");
+        let trash_path = trash_items[0].trash_path.clone();
+
+        // 5. Restore file
+        let restore_req = RestoreTrashRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+            trash_path: trash_path.clone(),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/trash/restore")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&restore_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let restored_content =
+            crate::vault::read_file(&temp_dir, &key, "temp_trash_note.txt").unwrap();
+        assert_eq!(restored_content, b"Recoverable text");
+
+        // 6. Move to trash again and empty
+        let _ = crate::vault::move_to_trash(&temp_dir, &key, "temp_trash_note.txt").unwrap();
+        let empty_req = EmptyTrashRequest {
+            vault_path: temp_dir.to_string_lossy().to_string(),
+        };
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/vaults/trash/empty")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&empty_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+
+        let res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(&uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(res.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let trash_items: Vec<crate::vault::TrashItem> = serde_json::from_slice(&body).unwrap();
+        assert!(trash_items.is_empty());
 
         // Cleanup
         save_saved_vaults(&original_saved);

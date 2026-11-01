@@ -700,6 +700,158 @@ pub fn delete_dir(
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct TrashItem {
+    pub trash_path: String,
+    pub original_path: String,
+    pub deleted_at: u64,
+    pub size_bytes: u64,
+}
+
+pub fn move_to_trash(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
+) -> Result<String, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+
+    let clean = relative_path.trim().trim_matches('/');
+    if clean.is_empty() {
+        return Err("Cannot move root directory to trash".to_string());
+    }
+
+    let trash_path = format!(".trash/{now}##{clean}");
+    rename_file(vault_dir, master_key, clean, &trash_path)?;
+    Ok(trash_path)
+}
+
+pub fn move_dir_to_trash(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    dir_prefix: &str,
+) -> Result<(String, usize), String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+
+    let p = dir_prefix.trim().trim_matches('/');
+    if p.is_empty() {
+        return Err("Cannot move root directory to trash".to_string());
+    }
+
+    let trash_dir = format!(".trash/{now}##{p}");
+    let files = list_files(vault_dir, master_key)?;
+    let p_with_slash = format!("{p}/");
+    let mut moved_count = 0;
+
+    for file in files {
+        if let Some(suffix) = file.strip_prefix(&p_with_slash) {
+            let new_path = format!("{trash_dir}/{suffix}");
+            rename_file(vault_dir, master_key, &file, &new_path)?;
+            if !file.ends_with("/.keep") && file != ".keep" {
+                moved_count += 1;
+            }
+        } else if file == p {
+            rename_file(vault_dir, master_key, &file, &trash_dir)?;
+            moved_count += 1;
+        }
+    }
+
+    Ok((trash_dir, moved_count))
+}
+
+pub fn list_trash(vault_dir: &Path, master_key: &[u8; 32]) -> Result<Vec<TrashItem>, String> {
+    let all = list_files_with_details(vault_dir, master_key)?;
+    let mut items = Vec::new();
+
+    for item in all {
+        if let Some(rest) = item.path.strip_prefix(".trash/") {
+            if item.path.ends_with("/.keep") {
+                continue;
+            }
+            if let Some((ts_str, orig_path)) = rest.split_once("##") {
+                let deleted_at = ts_str.parse::<u64>().unwrap_or(0);
+                items.push(TrashItem {
+                    trash_path: item.path.clone(),
+                    original_path: orig_path.to_string(),
+                    deleted_at,
+                    size_bytes: item.size,
+                });
+            } else {
+                items.push(TrashItem {
+                    trash_path: item.path.clone(),
+                    original_path: rest.to_string(),
+                    deleted_at: 0,
+                    size_bytes: item.size,
+                });
+            }
+        }
+    }
+
+    items.sort_by_key(|item| std::cmp::Reverse(item.deleted_at));
+    Ok(items)
+}
+
+pub fn restore_trash_item(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    trash_path: &str,
+) -> Result<String, String> {
+    let rest = trash_path
+        .strip_prefix(".trash/")
+        .ok_or_else(|| "Invalid trash path: must start with .trash/".to_string())?;
+
+    let original_path = if let Some((_, orig)) = rest.split_once("##") {
+        orig
+    } else {
+        rest
+    };
+
+    let phys_name = get_physical_filename(master_key, original_path);
+    let phys_path = vault_dir.join("d").join(phys_name);
+
+    let final_dest = if phys_path.exists() {
+        let p = Path::new(original_path);
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let ext = p.extension().and_then(|s| s.to_str());
+        let parent = p.parent().and_then(|s| s.to_str()).unwrap_or("");
+
+        let new_filename = match ext {
+            Some(e) => format!("{stem} (restored).{e}"),
+            None => format!("{stem} (restored)"),
+        };
+
+        if parent.is_empty() {
+            new_filename
+        } else {
+            format!("{parent}/{new_filename}")
+        }
+    } else {
+        original_path.to_string()
+    };
+
+    rename_file(vault_dir, master_key, trash_path, &final_dest)?;
+    Ok(final_dest)
+}
+
+pub fn empty_trash(vault_dir: &Path, master_key: &[u8; 32]) -> Result<usize, String> {
+    let all = list_files(vault_dir, master_key)?;
+    let mut deleted_count = 0;
+
+    for path in all {
+        if path.starts_with(".trash/") {
+            delete_file(vault_dir, master_key, &path)?;
+            deleted_count += 1;
+        }
+    }
+
+    Ok(deleted_count)
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct FileItem {
     pub path: String,
     pub size: u64,
@@ -779,7 +931,11 @@ pub fn find_files(
     let q = query.to_lowercase();
     Ok(all
         .into_iter()
-        .filter(|item| !item.path.ends_with("/.keep") && item.path.to_lowercase().contains(&q))
+        .filter(|item| {
+            !item.path.ends_with("/.keep")
+                && !item.path.starts_with(".trash/")
+                && item.path.to_lowercase().contains(&q)
+        })
         .collect())
 }
 
@@ -827,7 +983,7 @@ pub fn grep_vault(
     let max_matches = max_matches_per_file.unwrap_or(100);
 
     for rel_path in files {
-        if rel_path.ends_with("/.keep") || rel_path == ".keep" {
+        if rel_path.ends_with("/.keep") || rel_path == ".keep" || rel_path.starts_with(".trash/") {
             continue;
         }
 
@@ -1126,6 +1282,8 @@ pub fn get_vault_stats(vault_dir: &Path, master_key: &[u8; 32]) -> Result<VaultS
 pub struct IntegrityReport {
     pub total_checked: usize,
     pub valid_files: usize,
+    #[serde(default)]
+    pub trash_files: usize,
     pub corrupted_files: Vec<String>,
     pub orphaned_files: Vec<String>,
     pub is_healthy: bool,
@@ -1140,6 +1298,7 @@ pub fn verify_vault_integrity(
         return Ok(IntegrityReport {
             total_checked: 0,
             valid_files: 0,
+            trash_files: 0,
             corrupted_files: Vec::new(),
             orphaned_files: Vec::new(),
             is_healthy: true,
@@ -1148,6 +1307,7 @@ pub fn verify_vault_integrity(
 
     let mut total_checked = 0;
     let mut valid_files = 0;
+    let mut trash_files = 0;
     let mut corrupted_files = Vec::new();
     let mut orphaned_files = Vec::new();
 
@@ -1188,6 +1348,8 @@ pub fn verify_vault_integrity(
                         corrupted_files.push(format!(
                             "{file_name}: Name mismatch (expected {expected_name} for '{rel_path}')"
                         ));
+                    } else if rel_path.starts_with(".trash/") {
+                        trash_files += 1;
                     } else {
                         valid_files += 1;
                     }
@@ -1204,6 +1366,7 @@ pub fn verify_vault_integrity(
     Ok(IntegrityReport {
         total_checked,
         valid_files,
+        trash_files,
         corrupted_files,
         orphaned_files,
         is_healthy,
@@ -1356,6 +1519,10 @@ pub fn export_vault(
             _ => (true, rel_path.clone()),
         };
 
+        if sub_clean.is_none() && rel_path.starts_with(".trash/") {
+            continue;
+        }
+
         if !should_export {
             continue;
         }
@@ -1464,6 +1631,10 @@ pub fn export_vault_zip(
                 }
                 _ => (true, rel_path.clone()),
             };
+
+            if sub_clean.is_none() && rel_path.starts_with(".trash/") {
+                continue;
+            }
 
             if !should_export {
                 continue;
@@ -2556,6 +2727,65 @@ mod tests {
         write_file(&test_dir, &key, "binary.dat", &[0x00, 0x99, 0xFF]).unwrap();
         let bin_err = diff_vault_files(&test_dir, &key, "doc_v1.txt", "binary.dat").unwrap_err();
         assert!(bin_err.contains("binary file"));
+
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+
+    #[test]
+    fn test_trash_lifecycle() {
+        let test_dir = std::env::temp_dir().join("cryptomator_test_trash");
+        let _ = fs::remove_dir_all(&test_dir);
+
+        create_vault(&test_dir, "trash_pass", None).unwrap();
+        let key = unlock_vault(&test_dir, "trash_pass", None).unwrap();
+
+        write_file(
+            &test_dir,
+            &key,
+            "documents/important.pdf",
+            b"Secret PDF content",
+        )
+        .unwrap();
+        write_file(&test_dir, &key, "notes.txt", b"Daily notes").unwrap();
+
+        // 1. Move to trash
+        let trash_path = move_to_trash(&test_dir, &key, "documents/important.pdf").unwrap();
+        assert!(trash_path.starts_with(".trash/"));
+        assert!(trash_path.contains("##documents/important.pdf"));
+
+        // 2. Original file is gone from regular list/find
+        let files = find_files(&test_dir, &key, "important").unwrap();
+        assert!(files.is_empty());
+
+        // 3. List trash
+        let trash_items = list_trash(&test_dir, &key).unwrap();
+        assert_eq!(trash_items.len(), 1);
+        assert_eq!(trash_items[0].original_path, "documents/important.pdf");
+        assert_eq!(
+            trash_items[0].size_bytes,
+            b"Secret PDF content".len() as u64
+        );
+
+        // 4. Restore trash
+        let restored_path = restore_trash_item(&test_dir, &key, &trash_path).unwrap();
+        assert_eq!(restored_path, "documents/important.pdf");
+        let content = read_file(&test_dir, &key, "documents/important.pdf").unwrap();
+        assert_eq!(content, b"Secret PDF content");
+        assert!(list_trash(&test_dir, &key).unwrap().is_empty());
+
+        // 5. Restore with name collision
+        let trash_path2 = move_to_trash(&test_dir, &key, "documents/important.pdf").unwrap();
+        // Create new file at original location
+        write_file(&test_dir, &key, "documents/important.pdf", b"New content").unwrap();
+        let restored_path2 = restore_trash_item(&test_dir, &key, &trash_path2).unwrap();
+        assert_eq!(restored_path2, "documents/important (restored).pdf");
+
+        // 6. Empty trash
+        let _ = move_to_trash(&test_dir, &key, "notes.txt").unwrap();
+        assert_eq!(list_trash(&test_dir, &key).unwrap().len(), 1);
+        let emptied = empty_trash(&test_dir, &key).unwrap();
+        assert_eq!(emptied, 1);
+        assert!(list_trash(&test_dir, &key).unwrap().is_empty());
 
         let _ = fs::remove_dir_all(&test_dir);
     }

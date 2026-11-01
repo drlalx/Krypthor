@@ -21,6 +21,7 @@ enum ViewMode {
 enum UnlockedTab {
     Files,
     Stats,
+    Trash,
 }
 
 #[cfg(feature = "egui-ui")]
@@ -122,6 +123,9 @@ struct CryptomatorApp {
     diff_file_a: String,
     diff_file_b: String,
     diff_result: Option<vault::DiffResult>,
+
+    // Vault Trash
+    trash_items: Vec<vault::TrashItem>,
 
     // Throughput & activity stats
     throughput_history: VecDeque<f32>,
@@ -227,6 +231,8 @@ impl CryptomatorApp {
             diff_file_b: String::new(),
             diff_result: None,
 
+            trash_items: Vec::new(),
+
             throughput_history,
             active_read_speed: 0.0,
             active_write_speed: 0.0,
@@ -281,12 +287,29 @@ impl CryptomatorApp {
             if let Some(key) = self.unlocked_vaults.get(&path) {
                 match vault::list_files_with_details(&path, key) {
                     Ok(files) => {
-                        self.vault_files = files;
+                        self.vault_files = files
+                            .into_iter()
+                            .filter(|f| !f.path.starts_with(".trash/"))
+                            .collect();
                     }
                     Err(e) => {
                         self.status_message = Some((format!("Error listing files: {e}"), true));
                     }
                 }
+            }
+        }
+        self.refresh_trash_items();
+    }
+
+    fn refresh_trash_items(&mut self) {
+        if let Some(idx) = self.selected_vault_idx
+            && let Some(vault) = self.saved_vaults.get(idx)
+        {
+            let path = PathBuf::from(&vault.path);
+            if let Some(key) = self.unlocked_vaults.get(&path)
+                && let Ok(trash) = vault::list_trash(&path, key)
+            {
+                self.trash_items = trash;
             }
         }
     }
@@ -1148,7 +1171,7 @@ impl CryptomatorApp {
         );
         ui.add_space(12.0);
 
-        // Tab Selector: Files vs Stats
+        // Tab Selector: Files vs Stats vs Trash
         ui.horizontal(|ui| {
             if ui
                 .selectable_label(self.unlocked_tab == UnlockedTab::Files, "📁 Files Explorer")
@@ -1165,6 +1188,19 @@ impl CryptomatorApp {
             {
                 self.unlocked_tab = UnlockedTab::Stats;
             }
+            let trash_count = self.trash_items.len();
+            let trash_title = if trash_count > 0 {
+                format!("🗑️ Trash ({trash_count})")
+            } else {
+                "🗑️ Trash".to_string()
+            };
+            if ui
+                .selectable_label(self.unlocked_tab == UnlockedTab::Trash, trash_title)
+                .clicked()
+            {
+                self.unlocked_tab = UnlockedTab::Trash;
+                self.refresh_trash_items();
+            }
         });
 
         ui.separator();
@@ -1176,6 +1212,9 @@ impl CryptomatorApp {
             }
             UnlockedTab::Stats => {
                 self.render_stats_tab(ui, &vault_path);
+            }
+            UnlockedTab::Trash => {
+                self.render_trash_tab(ui, &vault_path);
             }
         }
     }
@@ -1910,13 +1949,17 @@ impl CryptomatorApp {
                 }
 
                 if let Some(target) = file_to_delete {
-                    match vault::delete_file(vault_path, &master_key, &target) {
+                    match vault::move_to_trash(vault_path, &master_key, &target) {
                         Ok(_) => {
                             self.refresh_vault_files();
-                            self.status_message = Some((format!("Deleted '{target}' from vault."), false));
+                            self.status_message = Some((
+                                format!("Moved '{target}' to trash. Use the Trash tab to restore or permanently purge."),
+                                false,
+                            ));
                         }
                         Err(e) => {
-                            self.status_message = Some((format!("Error deleting file: {e}"), true));
+                            self.status_message =
+                                Some((format!("Error moving file to trash: {e}"), true));
                         }
                     }
                 }
@@ -2096,6 +2139,118 @@ impl CryptomatorApp {
                             [egui::pos2(p1_x, p1_y), egui::pos2(p2_x, p2_y)],
                             Stroke::new(2.0, Color32::from_rgb(80, 150, 240)),
                         );
+                    }
+                }
+            });
+    }
+
+    fn render_trash_tab(&mut self, ui: &mut egui::Ui, vault_path: &Path) {
+        let master_key = match self.unlocked_vaults.get(vault_path) {
+            Some(k) => *k,
+            None => return,
+        };
+
+        Card::new()
+            .heading("🗑️ Vault Trash (Recycle Bin)")
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("🔄 Refresh Trash").clicked() {
+                        self.refresh_trash_items();
+                    }
+                    if !self.trash_items.is_empty()
+                        && ui.button("⚠️ Empty Trash (Purge All)").clicked()
+                    {
+                        match vault::empty_trash(vault_path, &master_key) {
+                            Ok(purged) => {
+                                self.refresh_vault_files();
+                                self.status_message = Some((
+                                    format!("Trash emptied: purged {purged} file(s)."),
+                                    false,
+                                ));
+                            }
+                            Err(e) => {
+                                self.status_message =
+                                    Some((format!("Error emptying trash: {e}"), true));
+                            }
+                        }
+                    }
+                });
+
+                ui.add_space(10.0);
+
+                if self.trash_items.is_empty() {
+                    ui.label(
+                        RichText::new("The trash is empty. Deleted files will appear here and can be restored or purged.")
+                            .color(Color32::from_rgb(150, 160, 180))
+                            .italics(),
+                    );
+                } else {
+                    let mut item_to_restore = None;
+                    let mut item_to_purge = None;
+
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for item in &self.trash_items {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("📄").size(16.0));
+                                ui.label(RichText::new(&item.original_path).strong());
+                                let info = if item.deleted_at > 0 {
+                                    format!(
+                                        "({} • Deleted: {})",
+                                        format_bytes_gui(item.size_bytes),
+                                        vault::format_timestamp(item.deleted_at)
+                                    )
+                                } else {
+                                    format!("({})", format_bytes_gui(item.size_bytes))
+                                };
+                                ui.label(
+                                    RichText::new(info)
+                                        .color(Color32::from_rgb(140, 150, 170))
+                                        .size(12.0),
+                                );
+
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.button("❌ Purge").clicked() {
+                                        item_to_purge = Some(item.trash_path.clone());
+                                    }
+                                    if ui.button("♻️ Restore").clicked() {
+                                        item_to_restore = Some(item.trash_path.clone());
+                                    }
+                                });
+                            });
+                            ui.separator();
+                        }
+                    });
+
+                    if let Some(trash_path) = item_to_restore {
+                        match vault::restore_trash_item(vault_path, &master_key, &trash_path) {
+                            Ok(dest) => {
+                                self.refresh_vault_files();
+                                self.status_message = Some((
+                                    format!("Restored '{trash_path}' to '{dest}'."),
+                                    false,
+                                ));
+                            }
+                            Err(e) => {
+                                self.status_message =
+                                    Some((format!("Error restoring item: {e}"), true));
+                            }
+                        }
+                    }
+
+                    if let Some(trash_path) = item_to_purge {
+                        match vault::delete_file(vault_path, &master_key, &trash_path) {
+                            Ok(_) => {
+                                self.refresh_vault_files();
+                                self.status_message = Some((
+                                    format!("Permanently purged '{trash_path}'."),
+                                    false,
+                                ));
+                            }
+                            Err(e) => {
+                                self.status_message =
+                                    Some((format!("Error purging item: {e}"), true));
+                            }
+                        }
                     }
                 }
             });

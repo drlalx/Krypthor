@@ -832,6 +832,145 @@ fn test_cli_vault_workflow() {
     assert!(stdout.contains("\"pruned_files\""));
     assert!(stdout.contains("\"bytes_reclaimed\""));
 
+    // 30. Trash commands (list, json, restore, empty, permanent delete)
+    let output = Command::new(bin_path)
+        .args([
+            "trash",
+            "list",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute trash list");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Trash items"));
+    assert!(stdout.contains("old_report.txt"));
+
+    let output = Command::new(bin_path)
+        .args([
+            "trash",
+            "list",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute trash list --json");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"original_path\": \"archive/old_report.txt\""));
+    let trash_items: Vec<serde_json::Value> = serde_json::from_str(&stdout).unwrap();
+    let old_report_item = trash_items
+        .iter()
+        .find(|item| item["original_path"].as_str() == Some("archive/old_report.txt"))
+        .expect("archive/old_report.txt in trash");
+    let trash_path_str = old_report_item["trash_path"].as_str().unwrap();
+
+    // Restore from trash
+    let output = Command::new(bin_path)
+        .args([
+            "trash",
+            "restore",
+            "--path",
+            &vault_path,
+            "-t",
+            trash_path_str,
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute trash restore");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Restored"));
+
+    // Verify restored content
+    let output = Command::new(bin_path)
+        .args([
+            "cat",
+            "--path",
+            &vault_path,
+            "--file",
+            "archive/old_report.txt",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute cat command on restored file");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"Confidential financial data");
+
+    // Empty remaining trash
+    let output = Command::new(bin_path)
+        .args([
+            "trash",
+            "empty",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute trash empty");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Trash emptied: purged"));
+
+    // Verify trash is now empty
+    let output = Command::new(bin_path)
+        .args([
+            "trash",
+            "list",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute trash list after empty");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Trash is empty."));
+
+    // Test permanent delete with --permanent
+    let output = Command::new(bin_path)
+        .args([
+            "rm",
+            "--path",
+            &vault_path,
+            "--file",
+            "archive/old_report.txt",
+            "--permanent",
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute rm --permanent");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("permanently deleted"));
+
+    // Verify trash remains empty
+    let output = Command::new(bin_path)
+        .args([
+            "trash",
+            "list",
+            "--path",
+            &vault_path,
+            "--password",
+            "updated_secret",
+        ])
+        .output()
+        .expect("Failed to execute trash list after permanent rm");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Trash is empty."));
+
     // Cleanup vault from vaults.json
     let _ = Command::new(bin_path)
         .args(["remove", "--path", &vault_path])

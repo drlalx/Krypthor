@@ -447,7 +447,10 @@ fn main() {
                             let pattern_lower = pattern.as_deref().map(str::to_lowercase);
                             let visible: Vec<&vault::FileItem> = items
                                 .iter()
-                                .filter(|item| !item.path.ends_with("/.keep"))
+                                .filter(|item| {
+                                    !item.path.ends_with("/.keep")
+                                        && !item.path.starts_with(".trash/")
+                                })
                                 .filter(|item| {
                                     if let Some(ref pat) = pattern_lower {
                                         item.path.to_lowercase().contains(pat)
@@ -650,6 +653,7 @@ fn main() {
                 path,
                 file,
                 recursive,
+                permanent,
                 password,
                 keyfile,
             } => {
@@ -666,23 +670,51 @@ fn main() {
                 let path_buf = Path::new(&path);
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
-                        if recursive {
-                            match vault::delete_dir(path_buf, &master_key, &file) {
-                                Ok(count) => {
-                                    println!("Removed {count} item(s) in '{file}'.");
+                        if permanent {
+                            if recursive {
+                                match vault::delete_dir(path_buf, &master_key, &file) {
+                                    Ok(count) => {
+                                        println!(
+                                            "Permanently removed {count} item(s) in '{file}'."
+                                        );
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error deleting directory '{file}': {e}");
+                                        std::process::exit(1);
+                                    }
+                                }
+                            } else {
+                                match vault::delete_file(path_buf, &master_key, &file) {
+                                    Ok(_) => {
+                                        println!("File '{file}' permanently deleted from vault.");
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error deleting file: {e}");
+                                        std::process::exit(1);
+                                    }
+                                }
+                            }
+                        } else if recursive {
+                            match vault::move_dir_to_trash(path_buf, &master_key, &file) {
+                                Ok((_trash_dir, count)) => {
+                                    println!(
+                                        "Removed {count} item(s) in '{file}'. Moved to trash. Use 'cryptomator_rs trash restore' to recover or '--permanent' to delete without trash."
+                                    );
                                 }
                                 Err(e) => {
-                                    eprintln!("Error deleting directory '{file}': {e}");
+                                    eprintln!("Error moving directory '{file}' to trash: {e}");
                                     std::process::exit(1);
                                 }
                             }
                         } else {
-                            match vault::delete_file(path_buf, &master_key, &file) {
-                                Ok(_) => {
-                                    println!("File '{file}' deleted from vault.");
+                            match vault::move_to_trash(path_buf, &master_key, &file) {
+                                Ok(trash_path) => {
+                                    println!(
+                                        "Moved '{file}' to trash as '{trash_path}'. Use 'cryptomator_rs trash restore' to recover or '--permanent' to delete without trash."
+                                    );
                                 }
                                 Err(e) => {
-                                    eprintln!("Error deleting file: {e}");
+                                    eprintln!("Error moving file to trash: {e}");
                                     std::process::exit(1);
                                 }
                             }
@@ -1030,6 +1062,9 @@ fn main() {
                                 }
                                 println!("  Files Checked:    {}", report.total_checked);
                                 println!("  Valid Files:      {}", report.valid_files);
+                                if report.trash_files > 0 {
+                                    println!("  Trash Files:      {}", report.trash_files);
+                                }
                                 if !report.corrupted_files.is_empty() {
                                     println!(
                                         "  Corrupted Files ({}):",
@@ -1430,6 +1465,133 @@ fn main() {
                     Err(e) => {
                         eprintln!("Unlock failed: {e}");
                         std::process::exit(1);
+                    }
+                }
+                return;
+            }
+            cli::Commands::Trash(sub) => {
+                match sub {
+                    cli::TrashCommands::List {
+                        path,
+                        password,
+                        keyfile,
+                        json,
+                    } => {
+                        let pwd = match password {
+                            Some(p) => p,
+                            None => {
+                                print!("Enter vault password: ");
+                                let _ = std::io::stdout().flush();
+                                let mut p = String::new();
+                                let _ = std::io::stdin().read_line(&mut p);
+                                p.trim().to_string()
+                            }
+                        };
+                        let path_buf = Path::new(&path);
+                        match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new))
+                        {
+                            Ok(master_key) => match vault::list_trash(path_buf, &master_key) {
+                                Ok(items) => {
+                                    if json {
+                                        println!(
+                                            "{}",
+                                            serde_json::to_string_pretty(&items)
+                                                .unwrap_or_else(|_| "[]".into())
+                                        );
+                                    } else if items.is_empty() {
+                                        println!("Trash is empty.");
+                                    } else {
+                                        println!("Trash items ({} file(s)):\n", items.len());
+                                        for item in &items {
+                                            println!(
+                                                "  {} ({}) -> {}",
+                                                item.original_path,
+                                                format_bytes_cli(item.size_bytes),
+                                                item.trash_path
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to list trash: {e}");
+                                    std::process::exit(1);
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("Unlock failed: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                    cli::TrashCommands::Restore {
+                        path,
+                        trash_path,
+                        password,
+                        keyfile,
+                    } => {
+                        let pwd = match password {
+                            Some(p) => p,
+                            None => {
+                                print!("Enter vault password: ");
+                                let _ = std::io::stdout().flush();
+                                let mut p = String::new();
+                                let _ = std::io::stdin().read_line(&mut p);
+                                p.trim().to_string()
+                            }
+                        };
+                        let path_buf = Path::new(&path);
+                        match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new))
+                        {
+                            Ok(master_key) => {
+                                match vault::restore_trash_item(path_buf, &master_key, &trash_path)
+                                {
+                                    Ok(dest) => {
+                                        println!("Restored '{trash_path}' to '{dest}'.");
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error restoring from trash: {e}");
+                                        std::process::exit(1);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Unlock failed: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                    cli::TrashCommands::Empty {
+                        path,
+                        password,
+                        keyfile,
+                    } => {
+                        let pwd = match password {
+                            Some(p) => p,
+                            None => {
+                                print!("Enter vault password: ");
+                                let _ = std::io::stdout().flush();
+                                let mut p = String::new();
+                                let _ = std::io::stdin().read_line(&mut p);
+                                p.trim().to_string()
+                            }
+                        };
+                        let path_buf = Path::new(&path);
+                        match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new))
+                        {
+                            Ok(master_key) => match vault::empty_trash(path_buf, &master_key) {
+                                Ok(count) => {
+                                    println!("Trash emptied: purged {count} item(s).");
+                                }
+                                Err(e) => {
+                                    eprintln!("Error emptying trash: {e}");
+                                    std::process::exit(1);
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("Unlock failed: {e}");
+                                std::process::exit(1);
+                            }
+                        }
                     }
                 }
                 return;

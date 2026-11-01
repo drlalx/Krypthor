@@ -178,11 +178,30 @@ cargo run --release -- cat --path "/pfad/zum/tresor" --file "ordner/datei.txt"
 ```
 
 #### Datei oder Ordner im Tresor löschen (rm)
+Standardmäßig werden gelöschte Dateien und Ordner in den tresorinternen Papierkorb (`.trash/`) verschoben und können wiederhergestellt werden. Mit dem Flag `--permanent` werden sie sofort unwiderruflich physikalisch gelöscht:
 ```bash
-# Einzelne Datei löschen:
+# In den Papierkorb verschieben:
 cargo run --release -- rm --path "/pfad/zum/tresor" --file "ordner/datei.txt"
-# Verzeichnis rekursiv mit allen Inhalten löschen (-r / --recursive):
+
+# Verzeichnis rekursiv in den Papierkorb verschieben (-r / --recursive):
 cargo run --release -- rm --path "/pfad/zum/tresor" --file "ordner" -r
+
+# Sofort endgültig löschen ohne Papierkorb (--permanent):
+cargo run --release -- rm --path "/pfad/zum/tresor" --file "ordner/datei.txt" --permanent
+```
+
+#### Papierkorb verwalten (trash)
+Verwaltet den tresorinternen Papierkorb für versehentlich gelöschte Dateien:
+```bash
+# Alle Dateien im Papierkorb auflisten (optional mit --json):
+cargo run --release -- trash list --path "/pfad/zum/tresor"
+cargo run --release -- trash list --path "/pfad/zum/tresor" --json
+
+# Datei oder Verzeichnis aus dem Papierkorb wiederherstellen:
+cargo run --release -- trash restore --path "/pfad/zum/tresor" -t ".trash/1729780000##ordner/datei.txt"
+
+# Papierkorb vollständig und unwiderruflich leeren:
+cargo run --release -- trash empty --path "/pfad/zum/tresor"
 ```
 
 #### JSON-Ausgabe für Scripting & CI/CD (--json)
