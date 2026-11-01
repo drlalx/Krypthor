@@ -171,6 +171,17 @@ pub struct EmptyTrashRequest {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct PruneTrashRequest {
+    pub vault_path: String,
+    #[serde(default = "default_trash_prune_days")]
+    pub days: u64,
+}
+
+fn default_trash_prune_days() -> u64 {
+    30
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct RemoveVaultRequest {
     pub path: String,
 }
@@ -859,6 +870,40 @@ async fn empty_trash_handler(
     }))
 }
 
+async fn prune_trash_handler(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<PruneTrashRequest>,
+) -> Result<Json<GenericSuccessResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let master_key = state
+        .get_master_key(&payload.vault_path)
+        .await
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse {
+                    error: "Vault is locked or session expired".into(),
+                }),
+            )
+        })?;
+
+    let vault_dir = Path::new(&payload.vault_path);
+    let older_than_secs = payload.days.saturating_mul(86400);
+    let count = vault::prune_trash(vault_dir, &master_key, older_than_secs).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    Ok(Json(GenericSuccessResponse {
+        success: true,
+        message: format!(
+            "Pruned {count} item(s) from trash older than {} day(s)",
+            payload.days
+        ),
+    }))
+}
+
 async fn preview_file_handler(
     State(state): State<Arc<AppState>>,
     Query(query): Query<DownloadQuery>,
@@ -1321,6 +1366,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/trash", get(list_trash_handler))
         .route("/api/vaults/trash/restore", post(restore_trash_handler))
         .route("/api/vaults/trash/empty", post(empty_trash_handler))
+        .route("/api/vaults/trash/prune", post(prune_trash_handler))
         .route("/api/vaults/change_password", post(change_password_handler))
         .route("/api/vaults/recovery_key", post(recovery_key_handler))
         .route("/api/vaults/backup_key", post(backup_key_handler))

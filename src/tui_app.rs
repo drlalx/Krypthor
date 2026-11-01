@@ -474,6 +474,28 @@ fn run_loop<B: ratatui::backend::Backend>(
                             }
                         }
                     }
+                    KeyCode::Char('t') => {
+                        if let Some(idx) = app.list_state.selected() {
+                            let path = PathBuf::from(&app.vaults[idx].path);
+                            if let Some(key) = app.unlocked_keys.get(&path) {
+                                match vault::empty_trash(&path, key) {
+                                    Ok(count) => {
+                                        app.status_message =
+                                            format!("Emptied trash: purged {count} item(s).");
+                                        app.status_is_error = false;
+                                    }
+                                    Err(e) => {
+                                        app.status_message = format!("Error emptying trash: {e}");
+                                        app.status_is_error = true;
+                                    }
+                                }
+                            } else {
+                                app.status_message =
+                                    "Vault must be unlocked to empty trash.".to_string();
+                                app.status_is_error = true;
+                            }
+                        }
+                    }
                     _ => {}
                 },
                 InputMode::RecoverKeyInput => match key.code {
@@ -858,10 +880,31 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
                     ]));
                 }
 
+                if let Ok(trash) = vault::list_trash(&path, master_key) {
+                    let trash_count = trash.len();
+                    let trash_bytes: u64 = trash.iter().map(|t| t.size_bytes).sum();
+                    let trash_mb = trash_bytes as f64 / (1024.0 * 1024.0);
+                    let trash_style = if trash_count > 0 {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    };
+                    detail_lines.push(Line::from(vec![
+                        Span::styled("Trash:        ", Style::default().fg(Color::Gray)),
+                        Span::styled(
+                            format!(
+                                "{} file(s), {:.2} MB (press 't' to empty)",
+                                trash_count, trash_mb
+                            ),
+                            trash_style,
+                        ),
+                    ]));
+                }
+
                 if let Ok(files) = vault::list_files_with_details(&path, master_key) {
                     let visible: Vec<&vault::FileItem> = files
                         .iter()
-                        .filter(|f| !f.path.ends_with("/.keep"))
+                        .filter(|f| !f.path.ends_with("/.keep") && !f.path.starts_with(".trash/"))
                         .collect();
                     if !visible.is_empty() {
                         detail_lines.push(Line::from(""));
@@ -991,7 +1034,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .style(Style::default().bg(theme_dark_bg));
 
     let bindings_text = Span::styled(
-        " [↑/↓] Select  [Enter] Toggle  [v] Verify  [b] Backup  [n] Rename  [d] Remove  [r] Recover  [x] Key  [a] Add  [c] Create  [q] Quit",
+        " [↑/↓] Select  [Enter] Toggle  [v] Verify  [t] Trash  [b] Backup  [n] Rename  [d] Remove  [r] Recover  [x] Key  [a] Add  [c] Create  [q] Quit",
         Style::default().fg(theme_cyan),
     );
 

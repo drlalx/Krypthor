@@ -1593,6 +1593,52 @@ fn main() {
                             }
                         }
                     }
+                    cli::TrashCommands::Prune {
+                        path,
+                        days,
+                        password,
+                        keyfile,
+                        json,
+                    } => {
+                        let pwd = match password {
+                            Some(p) => p,
+                            None => {
+                                print!("Enter vault password: ");
+                                let _ = std::io::stdout().flush();
+                                let mut p = String::new();
+                                let _ = std::io::stdin().read_line(&mut p);
+                                p.trim().to_string()
+                            }
+                        };
+                        let path_buf = Path::new(&path);
+                        match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new))
+                        {
+                            Ok(master_key) => {
+                                let older_than_secs = days.saturating_mul(86400);
+                                match vault::prune_trash(path_buf, &master_key, older_than_secs) {
+                                    Ok(count) => {
+                                        if json {
+                                            println!(
+                                                "{{\"pruned_trash_count\": {count}, \"retention_days\": {days}}}"
+                                            );
+                                        } else {
+                                            println!(
+                                                "Purged {count} item(s) from trash older than {days} day(s)."
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error pruning trash: {e}");
+                                        std::process::exit(1);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Unlock failed: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
                 }
                 return;
             }

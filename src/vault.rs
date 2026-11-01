@@ -851,6 +851,29 @@ pub fn empty_trash(vault_dir: &Path, master_key: &[u8; 32]) -> Result<usize, Str
     Ok(deleted_count)
 }
 
+pub fn prune_trash(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    older_than_secs: u64,
+) -> Result<usize, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
+
+    let trash_items = list_trash(vault_dir, master_key)?;
+    let mut deleted_count = 0;
+
+    for item in trash_items {
+        if item.deleted_at > 0 && now.saturating_sub(item.deleted_at) >= older_than_secs {
+            delete_file(vault_dir, master_key, &item.trash_path)?;
+            deleted_count += 1;
+        }
+    }
+
+    Ok(deleted_count)
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct FileItem {
     pub path: String,
@@ -2780,8 +2803,21 @@ mod tests {
         let restored_path2 = restore_trash_item(&test_dir, &key, &trash_path2).unwrap();
         assert_eq!(restored_path2, "documents/important (restored).pdf");
 
-        // 6. Empty trash
+        // 6. Test prune_trash
         let _ = move_to_trash(&test_dir, &key, "notes.txt").unwrap();
+        assert_eq!(list_trash(&test_dir, &key).unwrap().len(), 1);
+        // Prune older than 1 hour (should prune 0)
+        let pruned_none = prune_trash(&test_dir, &key, 3600).unwrap();
+        assert_eq!(pruned_none, 0);
+        assert_eq!(list_trash(&test_dir, &key).unwrap().len(), 1);
+        // Prune older than 0 secs (should prune 1)
+        let pruned_all = prune_trash(&test_dir, &key, 0).unwrap();
+        assert_eq!(pruned_all, 1);
+        assert!(list_trash(&test_dir, &key).unwrap().is_empty());
+
+        // 7. Empty trash
+        write_file(&test_dir, &key, "notes2.txt", b"Notes 2").unwrap();
+        let _ = move_to_trash(&test_dir, &key, "notes2.txt").unwrap();
         assert_eq!(list_trash(&test_dir, &key).unwrap().len(), 1);
         let emptied = empty_trash(&test_dir, &key).unwrap();
         assert_eq!(emptied, 1);

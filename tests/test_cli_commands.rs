@@ -905,6 +905,26 @@ fn test_cli_vault_workflow() {
     assert!(output.status.success());
     assert_eq!(output.stdout, b"Confidential financial data");
 
+    // Test trash prune (standard and --json)
+    let output = Command::new(bin_path)
+        .args([
+            "trash",
+            "prune",
+            "--path",
+            &vault_path,
+            "--days",
+            "30",
+            "--password",
+            "updated_secret",
+            "--json",
+        ])
+        .output()
+        .expect("Failed to execute trash prune --json");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"pruned_trash_count\""));
+    assert!(stdout.contains("\"retention_days\": 30"));
+
     // Empty remaining trash
     let output = Command::new(bin_path)
         .args([

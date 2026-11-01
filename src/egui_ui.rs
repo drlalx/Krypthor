@@ -2157,20 +2157,38 @@ impl CryptomatorApp {
                     if ui.button("🔄 Refresh Trash").clicked() {
                         self.refresh_trash_items();
                     }
-                    if !self.trash_items.is_empty()
-                        && ui.button("⚠️ Empty Trash (Purge All)").clicked()
-                    {
-                        match vault::empty_trash(vault_path, &master_key) {
-                            Ok(purged) => {
-                                self.refresh_vault_files();
-                                self.status_message = Some((
-                                    format!("Trash emptied: purged {purged} file(s)."),
-                                    false,
-                                ));
+                    if !self.trash_items.is_empty() {
+                        if ui.button("🧹 Prune (>30 Days)").clicked() {
+                            let older_than_secs = 30 * 86400;
+                            match vault::prune_trash(vault_path, &master_key, older_than_secs) {
+                                Ok(purged) => {
+                                    self.refresh_vault_files();
+                                    self.status_message = Some((
+                                        format!(
+                                            "Pruned {purged} file(s) from trash older than 30 days."
+                                        ),
+                                        false,
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Error pruning trash: {e}"), true));
+                                }
                             }
-                            Err(e) => {
-                                self.status_message =
-                                    Some((format!("Error emptying trash: {e}"), true));
+                        }
+                        if ui.button("⚠️ Empty Trash (Purge All)").clicked() {
+                            match vault::empty_trash(vault_path, &master_key) {
+                                Ok(purged) => {
+                                    self.refresh_vault_files();
+                                    self.status_message = Some((
+                                        format!("Trash emptied: purged {purged} file(s)."),
+                                        false,
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.status_message =
+                                        Some((format!("Error emptying trash: {e}"), true));
+                                }
                             }
                         }
                     }

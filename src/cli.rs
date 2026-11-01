@@ -528,4 +528,22 @@ pub enum TrashCommands {
         #[arg(short, long)]
         keyfile: Option<String>,
     },
+    /// Prune and delete files from trash older than a specified number of days
+    Prune {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Number of days (files older than this are permanently purged)
+        #[arg(long, default_value_t = 30)]
+        days: u64,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+        /// Format output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }

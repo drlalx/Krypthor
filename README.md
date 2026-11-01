@@ -202,6 +202,10 @@ cargo run --release -- trash restore --path "/pfad/zum/tresor" -t ".trash/172978
 
 # Papierkorb vollständig und unwiderruflich leeren:
 cargo run --release -- trash empty --path "/pfad/zum/tresor"
+
+# Dateien im Papierkorb bereinigen, die älter als N Tage sind (Retention Policy):
+cargo run --release -- trash prune --path "/pfad/zum/tresor" --days 30
+cargo run --release -- trash prune --path "/pfad/zum/tresor" --days 30 --json
 ```
 
 #### JSON-Ausgabe für Scripting & CI/CD (--json)
