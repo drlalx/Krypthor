@@ -10,7 +10,7 @@ description = "Modern, memory-safe Cryptomator vault implementation in Rust with
 default = ["egui-ui", "tui", "web"]
 egui-ui = ["dep:eframe", "dep:egui", "dep:egui-elegance"]
 tui = ["dep:ratatui", "dep:crossterm"]
-web = ["dep:tokio", "dep:axum", "dep:tower", "dep:tower-http", "dep:mime_guess", "dep:zip"]
+web = ["dep:tokio", "dep:axum", "dep:tower", "dep:tower-http", "dep:mime_guess", "dep:zip", "dep:dav-server", "dep:futures-util"]
 fuse = ["dep:fuser", "dep:libc"]
 
 [dependencies]
@@ -22,6 +22,7 @@ base64 = "0.22"
 hex = "0.4"
 rand = "0.8"
 sha2 = "0.10"
+bytes = "1"
 rfd = "0.14"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
@@ -35,6 +36,8 @@ tower = { version = "0.5", features = ["util"], optional = true }
 tower-http = { version = "0.6", features = ["cors"], optional = true }
 mime_guess = { version = "2.0", optional = true }
 zip = { version = "2.2", default-features = false, features = ["deflate"], optional = true }
+dav-server = { version = "0.11", default-features = false, optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"], optional = true }
 
 [target.'cfg(unix)'.dependencies]
 fuser = { version = "0.14", default-features = false, optional = true }

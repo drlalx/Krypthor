@@ -29,6 +29,24 @@ pub enum Commands {
         #[arg(short, long, default_value_t = 8080)]
         port: u16,
     },
+    /// Serve a vault over WebDAV for native OS network drive mounting
+    Webdav {
+        /// Path to the vault folder containing masterkey.json
+        #[arg(short, long)]
+        path: String,
+        /// Host address to bind to
+        #[arg(short = 'H', long, default_value = "127.0.0.1")]
+        host: String,
+        /// Port to bind to
+        #[arg(short = 'P', long, default_value_t = 8081)]
+        port: u16,
+        /// Password (if not provided, you will be prompted)
+        #[arg(long)]
+        password: Option<String>,
+        /// Optional path to a keyfile
+        #[arg(short, long)]
+        keyfile: Option<String>,
+    },
     /// List all registered vaults
     List {
         /// Format output as JSON

@@ -1,43 +1,19 @@
-mod cli;
-#[cfg(feature = "egui-ui")]
-mod egui_ui;
-#[cfg(all(unix, feature = "fuse"))]
-mod fs_fuse;
-#[cfg(feature = "tui")]
-mod tui_app;
-mod vault;
-#[cfg(feature = "web")]
-pub mod web_server;
-
 use clap::Parser;
-use serde::{Deserialize, Serialize};
-use std::fs;
+use cryptomator_rs::cli;
+#[cfg(feature = "egui-ui")]
+use cryptomator_rs::egui_ui;
+#[cfg(all(unix, feature = "fuse"))]
+use cryptomator_rs::fs_fuse;
+#[cfg(feature = "tui")]
+use cryptomator_rs::tui_app;
+use cryptomator_rs::vault;
+#[cfg(feature = "web")]
+use cryptomator_rs::web_server;
+#[cfg(feature = "web")]
+use cryptomator_rs::webdav_fs;
+use cryptomator_rs::{SavedVault, load_saved_vaults, save_saved_vaults};
 use std::io::Write;
 use std::path::Path;
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct SavedVault {
-    pub name: String,
-    pub path: String,
-}
-
-pub const CONFIG_FILE: &str = "vaults.json";
-
-pub fn load_saved_vaults() -> Vec<SavedVault> {
-    if Path::new(CONFIG_FILE).exists()
-        && let Ok(content) = fs::read_to_string(CONFIG_FILE)
-        && let Ok(vaults) = serde_json::from_str::<Vec<SavedVault>>(&content)
-    {
-        return vaults;
-    }
-    Vec::new()
-}
-
-pub fn save_saved_vaults(vaults: &[SavedVault]) {
-    if let Ok(content) = serde_json::to_string_pretty(vaults) {
-        let _ = fs::write(CONFIG_FILE, content);
-    }
-}
 
 #[cfg(all(unix, feature = "fuse"))]
 static MOUNT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
@@ -110,6 +86,59 @@ fn main() {
                 }
                 #[cfg(not(feature = "web"))]
                 {
+                    eprintln!("Web feature is disabled in this build.");
+                    std::process::exit(1);
+                }
+            }
+            cli::Commands::Webdav {
+                path,
+                host,
+                port,
+                password,
+                keyfile,
+            } => {
+                #[cfg(feature = "web")]
+                {
+                    let pwd = match password {
+                        Some(p) => p,
+                        None => {
+                            print!("Enter password to unlock vault: ");
+                            let _ = std::io::stdout().flush();
+                            let mut p = String::new();
+                            let _ = std::io::stdin().read_line(&mut p);
+                            p.trim().to_string()
+                        }
+                    };
+                    let path_buf = Path::new(&path);
+                    match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
+                        Ok(master_key) => {
+                            let rt = match tokio::runtime::Runtime::new() {
+                                Ok(rt) => rt,
+                                Err(e) => {
+                                    eprintln!("Failed to create tokio runtime: {e}");
+                                    std::process::exit(1);
+                                }
+                            };
+                            if let Err(e) = rt.block_on(webdav_fs::run_webdav_server(
+                                path_buf.to_path_buf(),
+                                master_key,
+                                &host,
+                                port,
+                            )) {
+                                eprintln!("WebDAV server error: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Unlock failed: {e}");
+                            std::process::exit(1);
+                        }
+                    }
+                    return;
+                }
+                #[cfg(not(feature = "web"))]
+                {
+                    let _ = (path, host, port, password, keyfile);
                     eprintln!("Web feature is disabled in this build.");
                     std::process::exit(1);
                 }

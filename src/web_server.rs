@@ -3,7 +3,7 @@ use axum::{
     body::Body,
     extract::{Multipart, Query, State},
     http::{HeaderValue, StatusCode, header},
-    response::{Html, Response},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
@@ -1332,7 +1332,79 @@ async fn prune_vault_handler(
     Ok(Json(report))
 }
 
+pub async fn handle_daemon_webdav_request(
+    state: &AppState,
+    req: axum::extract::Request,
+) -> axum::response::Response {
+    let path = req.uri().path().to_string();
+    let sub = match path.strip_prefix("/webdav") {
+        Some(s) => s.trim_start_matches('/'),
+        None => return (StatusCode::NOT_FOUND, "Not Found").into_response(),
+    };
+
+    let mut parts = sub.splitn(2, '/');
+    let vault_identifier = match parts.next() {
+        Some(v) if !v.is_empty() => v,
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                "Missing vault identifier in WebDAV URL. Use /webdav/{vault_name}/",
+            )
+                .into_response();
+        }
+    };
+
+    let saved_vaults = load_saved_vaults();
+    let matching_vault = saved_vaults.iter().find(|v| {
+        v.name.eq_ignore_ascii_case(vault_identifier)
+            || Path::new(&v.path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.eq_ignore_ascii_case(vault_identifier))
+                .unwrap_or(false)
+            || v.path == vault_identifier
+    });
+
+    let vault_path = match matching_vault {
+        Some(v) => v.path.clone(),
+        None => {
+            if Path::new(vault_identifier).exists() {
+                vault_identifier.to_string()
+            } else {
+                return (
+                    StatusCode::NOT_FOUND,
+                    format!("Vault '{vault_identifier}' not found in registered vaults."),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    let master_key = match state.get_master_key(&vault_path).await {
+        Some(k) => k,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                [("WWW-Authenticate", "Basic realm=\"Cryptomator WebDAV\"")],
+                "Vault is locked. Please unlock the vault via the Web-Dashboard or REST API first.",
+            )
+                .into_response();
+        }
+    };
+
+    let prefix = format!("/webdav/{vault_identifier}");
+    let handler = crate::webdav_fs::create_webdav_handler(
+        PathBuf::from(&vault_path),
+        master_key,
+        Some(&prefix),
+    );
+
+    let (parts, body) = handler.handle(req).await.into_parts();
+    axum::response::Response::from_parts(parts, axum::body::Body::new(body))
+}
+
 pub fn build_router(state: Arc<AppState>) -> Router {
+    let fallback_state = Arc::clone(&state);
     Router::new()
         .route("/", get(index_handler))
         .route("/api/status", get(status_handler))
@@ -1371,6 +1443,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/vaults/recovery_key", post(recovery_key_handler))
         .route("/api/vaults/backup_key", post(backup_key_handler))
         .route("/api/vaults/restore_key", post(restore_key_handler))
+        .fallback(move |req: axum::extract::Request| {
+            let state = Arc::clone(&fallback_state);
+            async move {
+                if req.uri().path().starts_with("/webdav") {
+                    handle_daemon_webdav_request(&state, req).await
+                } else {
+                    (StatusCode::NOT_FOUND, "Not Found").into_response()
+                }
+            }
+        })
         .layer(CorsLayer::permissive())
         .with_state(state)
 }

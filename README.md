@@ -126,6 +126,21 @@ cargo run --release -- create --name "MeinTresor" --path "/pfad/zum/tresor"
 cargo run --release -- create --name "MeinTresor" --path "/pfad/zum/tresor" --password "geheim"
 ```
 
+#### Tresor als WebDAV-Netzlaufwerk bereitstellen (Standard-Build, plattformunabhängig)
+Startet einen lokalen WebDAV-Endpunkt zur nativen Einbindung im Betriebssystem ohne Kernel-Treiber oder Administrator-/Root-Rechte:
+```bash
+cargo run --release -- webdav --path "/pfad/zum/tresor"
+# Mit spezifischem Port und Passwort:
+cargo run --release -- webdav --path "/pfad/zum/tresor" --port 8081 --password "geheim"
+```
+
+**Betriebssystem-Anbindung (WebDAV):**
+* **Windows (Explorer):** *Netzlaufwerk verbinden* ➔ Adresse: `http://localhost:8081/`
+* **macOS (Finder):** *Gehe zu* ➔ *Mit Server verbinden* (`⌘K`) ➔ `http://localhost:8081/`
+* **Linux (GNOME Files / Dolphin):** *Mit Server verbinden* ➔ `dav://localhost:8081/`
+
+*Hinweis: Wenn der Web-Daemon (`cargo run --release -- serve`) läuft, sind alle dort entsperrten Tresore automatisch auch über `http://localhost:8080/webdav/<TresorName>/` im Dateimanager erreichbar.*
+
 #### Tresor mounten (FUSE, erfordert `--features fuse`)
 ```bash
 cargo run --release --features fuse -- mount --path "/pfad/zum/tresor" --mountpoint "/pfad/zum/mountpunkt"
@@ -320,13 +335,16 @@ cargo run --release -- prune --path "/pfad/zum/tresor"
 
 ## Projektstruktur
 
+- [`src/lib.rs`](src/lib.rs): Crate-Bibliotheks-Wurzel für Modul- und Integrationsanbindung.
 - [`src/main.rs`](src/main.rs): Einstiegspunkt, CLI-Argument-Parsing (`clap`) und Befehls-Dispatching.
 - [`src/vault.rs`](src/vault.rs): Kryptografischer Kern (Scrypt KDF, AES-256-GCM, Pfad-Hashing, Tresor-Initialisierung & Dateiverschlüsselung).
+- [`src/webdav_fs.rs`](src/webdav_fs.rs): Plattformunabhängige WebDAV-Dateisystem-Implementierung (`dav-server`) für native Netzlaufwerk-Einbindung.
 - [`src/web_server.rs`](src/web_server.rs): Web-Server und REST-API via `axum` und `tokio`.
 - [`src/web/index.html`](src/web/index.html): Eingebettetes, responsives Web-Dashboard (Single-Page-App).
 - [`src/egui_ui.rs`](src/egui_ui.rs): Desktop-GUI basierend auf `eframe`, `egui` und `egui-elegance`.
-- [`src/fs_fuse.rs`](src/fs_fuse.rs): Virtuelles FUSE-Dateisystem (Unix/Linux) zur nativen Einbindung von Tresoren.
+- [`src/fs_fuse.rs`](src/fs_fuse.rs): Virtuelles FUSE-Dateisystem (Unix/Linux, optional via `--features fuse`).
 - [`src/tui_app.rs`](src/tui_app.rs): Terminal-Benutzeroberfläche basierend auf `ratatui` und `crossterm`.
+- [`tests/test_webdav.rs`](tests/test_webdav.rs): Integrations- und Routing-Tests für den WebDAV-Server.
 - [`tests/test_license_compatibility.rs`](tests/test_license_compatibility.rs): Automatisierter Test zur Verifikation der MIT-Lizenzkompatibilität des Crate-Baums.
 - [`deny.toml`](deny.toml): Konfiguration für `cargo-deny`.
 
