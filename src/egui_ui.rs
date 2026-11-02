@@ -46,7 +46,7 @@ struct CryptomatorApp {
     saved_vaults: Vec<SavedVault>,
     selected_vault_idx: Option<usize>,
     unlocked_vaults: HashMap<PathBuf, [u8; 32]>,
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "fuse"))]
     active_mounts: HashMap<PathBuf, (fuser::BackgroundSession, PathBuf)>,
     view_mode: ViewMode,
     unlocked_tab: UnlockedTab,
@@ -163,7 +163,7 @@ impl CryptomatorApp {
             saved_vaults,
             selected_vault_idx,
             unlocked_vaults: HashMap::new(),
-            #[cfg(unix)]
+            #[cfg(all(unix, feature = "fuse"))]
             active_mounts: HashMap::new(),
             view_mode,
             unlocked_tab: UnlockedTab::Files,
@@ -268,7 +268,7 @@ impl CryptomatorApp {
             && let Some(vault) = self.saved_vaults.get(idx)
         {
             let path = PathBuf::from(&vault.path);
-            #[cfg(unix)]
+            #[cfg(all(unix, feature = "fuse"))]
             {
                 self.active_mounts.remove(&path);
             }
@@ -657,7 +657,7 @@ impl CryptomatorApp {
 
                 if let Some(del_idx) = to_delete {
                     let path = PathBuf::from(&self.saved_vaults[del_idx].path);
-                    #[cfg(unix)]
+                    #[cfg(all(unix, feature = "fuse"))]
                     {
                         self.active_mounts.remove(&path);
                     }
@@ -1120,7 +1120,7 @@ impl CryptomatorApp {
                     self.show_recovery_key_modal_open = true;
                 }
 
-                #[cfg(unix)]
+                #[cfg(all(unix, feature = "fuse"))]
                 {
                     if let Some((_session, mount_path)) = self.active_mounts.get(&vault_path) {
                         if ui
@@ -1988,7 +1988,7 @@ impl CryptomatorApp {
                     "• Total Storage Used: {}",
                     format_bytes_gui(total_size)
                 ));
-                #[cfg(unix)]
+                #[cfg(all(unix, feature = "fuse"))]
                 {
                     let is_fuse = self
                         .selected_vault_idx
@@ -2001,6 +2001,10 @@ impl CryptomatorApp {
                         "Inactive"
                     };
                     ui.label(format!("• FUSE Mount Status: {fuse_str}"));
+                }
+                #[cfg(not(all(unix, feature = "fuse")))]
+                {
+                    ui.label("• FUSE Mount Status: Disabled (Recompile with --features fuse)");
                 }
             });
 

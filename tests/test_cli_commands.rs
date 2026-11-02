@@ -311,7 +311,9 @@ fn test_cli_vault_workflow() {
         .expect("Failed to execute unmount command");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Error unmounting"));
+    assert!(
+        stderr.contains("Error unmounting") || stderr.contains("FUSE unmounting is not enabled")
+    );
 
     // 9f. Test completions generation (Bash)
     let output = Command::new(bin_path)
@@ -369,6 +371,26 @@ fn test_cli_vault_workflow() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("\"are_identical\": false"));
     assert!(stdout.contains("\"additions\":"));
+
+    #[cfg(not(feature = "fuse"))]
+    {
+        // 9i. Test mount command behavior with disabled FUSE feature
+        let output = Command::new(bin_path)
+            .args([
+                "mount",
+                "--path",
+                &vault_path,
+                "--mountpoint",
+                "/tmp/dummy_mount_point",
+                "--password",
+                "updated_secret",
+            ])
+            .output()
+            .expect("Failed to execute mount command");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success());
+        assert!(stderr.contains("FUSE mounting is not enabled"));
+    }
 
     // 10. Check stats via CLI
     let output = Command::new(bin_path)

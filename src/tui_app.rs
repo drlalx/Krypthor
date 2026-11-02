@@ -17,6 +17,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+#[cfg(all(unix, feature = "fuse"))]
 use crate::fs_fuse;
 use crate::vault;
 
@@ -59,7 +60,10 @@ enum InputMode {
 
 struct TuiApp {
     vaults: Vec<SavedVault>,
+    #[cfg(all(unix, feature = "fuse"))]
     active_mounts: HashMap<PathBuf, (fuser::BackgroundSession, PathBuf)>, // path -> (session, mountpoint)
+    #[cfg(not(all(unix, feature = "fuse")))]
+    active_mounts: HashMap<PathBuf, PathBuf>,
     unlocked_keys: HashMap<PathBuf, [u8; 32]>,
     list_state: ListState,
     input_mode: InputMode,
@@ -106,10 +110,10 @@ impl TuiApp {
     }
 
     fn check_auto_lock(&mut self) {
-        if !self.active_mounts.is_empty()
+        if !self.unlocked_keys.is_empty()
             && self.last_interaction.elapsed() >= self.auto_lock_timeout
         {
-            let count = self.active_mounts.len();
+            let count = self.unlocked_keys.len();
             self.active_mounts.clear();
             self.unlocked_keys.clear();
             self.status_message = format!("Auto-locked {count} vault(s) after 15 min inactivity.");
@@ -199,33 +203,46 @@ impl TuiApp {
         master_key: [u8; 32],
         vault_name: &str,
     ) {
-        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/adrichel".to_string());
-        let mount_base = Path::new(&home_dir).join("CryptomatorMounts");
-        let mount_dir = mount_base.join(vault_name);
+        #[cfg(all(unix, feature = "fuse"))]
+        {
+            let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/adrichel".to_string());
+            let mount_base = Path::new(&home_dir).join("CryptomatorMounts");
+            let mount_dir = mount_base.join(vault_name);
 
-        if let Err(e) = std::fs::create_dir_all(&mount_dir) {
-            self.status_message = format!("Failed to create mount folder: {}", e);
-            self.status_is_error = true;
-            return;
-        }
-
-        let fs_impl = fs_fuse::CryptomatorFS::new(vault_path.clone(), master_key);
-        let mount_options = vec![fuser::MountOption::CUSTOM(
-            "fsname=cryptomator-rs".to_string(),
-        )];
-
-        match fuser::spawn_mount2(fs_impl, &mount_dir, &mount_options) {
-            Ok(session) => {
-                self.unlocked_keys.insert(vault_path.clone(), master_key);
-                self.active_mounts
-                    .insert(vault_path, (session, mount_dir.clone()));
-                self.status_message = format!("Vault unlocked! Mounted at {:?}", mount_dir);
-                self.status_is_error = false;
-            }
-            Err(e) => {
-                self.status_message = format!("Mount failed: {}", e);
+            if let Err(e) = std::fs::create_dir_all(&mount_dir) {
+                self.status_message = format!("Failed to create mount folder: {}", e);
                 self.status_is_error = true;
+                return;
             }
+
+            let fs_impl = fs_fuse::CryptomatorFS::new(vault_path.clone(), master_key);
+            let mount_options = vec![fuser::MountOption::CUSTOM(
+                "fsname=cryptomator-rs".to_string(),
+            )];
+
+            match fuser::spawn_mount2(fs_impl, &mount_dir, &mount_options) {
+                Ok(session) => {
+                    self.unlocked_keys.insert(vault_path.clone(), master_key);
+                    self.active_mounts
+                        .insert(vault_path, (session, mount_dir.clone()));
+                    self.status_message = format!("Vault unlocked! Mounted at {:?}", mount_dir);
+                    self.status_is_error = false;
+                }
+                Err(e) => {
+                    self.status_message = format!("Mount failed: {}", e);
+                    self.status_is_error = true;
+                }
+            }
+        }
+        #[cfg(not(all(unix, feature = "fuse")))]
+        {
+            let _ = vault_name;
+            self.unlocked_keys.insert(vault_path.clone(), master_key);
+            self.active_mounts
+                .insert(vault_path, PathBuf::from("unmounted"));
+            self.status_message =
+                "Vault unlocked in TUI (FUSE mount disabled in this build).".to_string();
+            self.status_is_error = false;
         }
     }
 
@@ -234,9 +251,18 @@ impl TuiApp {
             return;
         };
         let vault_path = PathBuf::from(&self.vaults[idx].path);
-        self.unlocked_keys.remove(&vault_path);
-        if let Some((_, mountpoint)) = self.active_mounts.remove(&vault_path) {
-            self.status_message = format!("Vault locked. Unmounted {:?}", mountpoint);
+        let was_unlocked = self.unlocked_keys.remove(&vault_path).is_some();
+        #[cfg(all(unix, feature = "fuse"))]
+        let unmounted = self.active_mounts.remove(&vault_path).map(|(_, mp)| mp);
+        #[cfg(not(all(unix, feature = "fuse")))]
+        let unmounted = self.active_mounts.remove(&vault_path);
+
+        if was_unlocked {
+            if let Some(mountpoint) = unmounted {
+                self.status_message = format!("Vault locked. Unmounted {:?}", mountpoint);
+            } else {
+                self.status_message = "Vault locked.".to_string();
+            }
             self.status_is_error = false;
         } else {
             self.status_message = "Vault is not unlocked.".to_string();
@@ -354,7 +380,7 @@ fn run_loop<B: ratatui::backend::Backend>(
                         // Unlock/Lock toggle
                         if let Some(idx) = app.list_state.selected() {
                             let path = PathBuf::from(&app.vaults[idx].path);
-                            if app.active_mounts.contains_key(&path) {
+                            if app.unlocked_keys.contains_key(&path) {
                                 app.lock_active_vault();
                             } else {
                                 app.input_mode = InputMode::PasswordInput;
@@ -776,7 +802,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .iter()
         .map(|v| {
             let path = PathBuf::from(&v.path);
-            let is_unlocked = app.active_mounts.contains_key(&path);
+            let is_unlocked = app.unlocked_keys.contains_key(&path);
 
             let status_prefix = if is_unlocked {
                 Span::styled(
@@ -824,8 +850,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
     if let Some(idx) = app.list_state.selected() {
         let vault = &app.vaults[idx];
         let path = PathBuf::from(&vault.path);
-        let mount_info = app.active_mounts.get(&path);
-        let is_unlocked = mount_info.is_some();
+        let is_unlocked = app.unlocked_keys.contains_key(&path);
 
         detail_lines.push(Line::from(vec![
             Span::styled("Name:         ", Style::default().fg(Color::Gray)),
@@ -846,7 +871,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
             Span::styled("Status:       ", Style::default().fg(Color::Gray)),
             if is_unlocked {
                 Span::styled(
-                    "UNLOCKED & MOUNTED",
+                    "UNLOCKED",
                     Style::default()
                         .fg(theme_green)
                         .add_modifier(Modifier::BOLD),
@@ -859,7 +884,8 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
             },
         ]));
 
-        if let Some((_, mountpoint)) = mount_info {
+        #[cfg(all(unix, feature = "fuse"))]
+        if let Some((_, mountpoint)) = app.active_mounts.get(&path) {
             detail_lines.push(Line::from(vec![
                 Span::styled("Mountpoint:   ", Style::default().fg(Color::Gray)),
                 Span::styled(
@@ -867,7 +893,9 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
                     Style::default().fg(theme_green),
                 ),
             ]));
+        }
 
+        if is_unlocked {
             if let Some(master_key) = app.unlocked_keys.get(&path) {
                 if let Ok(stats) = vault::get_vault_stats(&path, master_key) {
                     let size_mb = stats.total_size_bytes as f64 / (1024.0 * 1024.0);
@@ -937,17 +965,13 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
 
             detail_lines.push(Line::from(""));
             detail_lines.push(Line::from(Span::styled(
-                "✔ You can access your decrypted files directly in this mount folder.",
-                Style::default().fg(Color::DarkGray),
-            )));
-            detail_lines.push(Line::from(Span::styled(
-                "✔ Use git inside this folder for client-side encrypted repository hosting.",
+                "✔ Press 'f' to view files, 't' for trash, 'l' to lock.",
                 Style::default().fg(Color::DarkGray),
             )));
         } else {
             detail_lines.push(Line::from(""));
             detail_lines.push(Line::from(Span::styled(
-                "🔒 To access files or mount a git repository, press Enter to unlock.",
+                "🔒 To access files or browse the vault, press Enter to unlock.",
                 Style::default().fg(Color::Yellow),
             )));
         }

@@ -1,7 +1,7 @@
 mod cli;
 #[cfg(feature = "egui-ui")]
 mod egui_ui;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "fuse"))]
 mod fs_fuse;
 #[cfg(feature = "tui")]
 mod tui_app;
@@ -39,10 +39,10 @@ pub fn save_saved_vaults(vaults: &[SavedVault]) {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "fuse"))]
 static MOUNT_RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "fuse"))]
 extern "C" fn sig_unmount_handler(_: libc::c_int) {
     MOUNT_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
 }
@@ -219,7 +219,7 @@ fn main() {
                 password,
                 keyfile,
             } => {
-                #[cfg(unix)]
+                #[cfg(all(unix, feature = "fuse"))]
                 {
                     let pwd = match password {
                         Some(p) => p,
@@ -294,10 +294,15 @@ fn main() {
                         }
                     }
                 }
-                #[cfg(not(unix))]
+                #[cfg(not(all(unix, feature = "fuse")))]
                 {
                     let _ = (path, mountpoint, password, keyfile);
-                    eprintln!("FUSE mount is only supported on Unix/Linux platforms.");
+                    eprintln!(
+                        "Error: FUSE mounting is not enabled in this build of cryptomator_rs."
+                    );
+                    eprintln!(
+                        "Please recompile with '--features fuse', or use WebDAV for drive access."
+                    );
                     std::process::exit(1);
                 }
             }
@@ -1369,7 +1374,7 @@ fn main() {
             cli::Commands::Unmount { mountpoint, force } => {
                 let mount_dir = Path::new(&mountpoint);
                 println!("Unmounting {mount_dir:?}...");
-                #[cfg(unix)]
+                #[cfg(all(unix, feature = "fuse"))]
                 {
                     match crate::fs_fuse::unmount_mountpoint(mount_dir, force) {
                         Ok(()) => println!("Successfully unmounted {mountpoint}."),
@@ -1379,13 +1384,15 @@ fn main() {
                         }
                     }
                 }
-                #[cfg(not(unix))]
+                #[cfg(not(all(unix, feature = "fuse")))]
                 {
                     let _ = (mount_dir, force);
-                    eprintln!("FUSE unmount is only supported on Unix/Linux platforms.");
+                    eprintln!(
+                        "Error: FUSE unmounting is not enabled in this build of cryptomator_rs."
+                    );
+                    eprintln!("Please recompile with '--features fuse'.");
                     std::process::exit(1);
                 }
-                return;
             }
             cli::Commands::Completions { shell } => {
                 use clap::CommandFactory;

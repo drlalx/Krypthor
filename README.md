@@ -27,8 +27,8 @@ Eine moderne, speichersichere und performante Implementierung des Cryptomator-Ko
   - **Dateiverschlüsselung**: Authenticated Encryption mit AES-256-GCM. Jede Datei enthält einen zufälligen 12-Byte-Nonce und verschlüsselte Pfadmetadaten.
   - **Dateinamen-Verschleierung**: Physikalische Dateinamen auf dem Datenträger werden deterministisch durch `SHA-256(master_key || relativer_pfad)` verschleiert.
   - **Auto-Lock**: Automatische Sperrung des entsperrten Tresors bei Inaktivität nach konfigurierbarer Zeit.
-- **Code-Qualität & Compliance**:
-  - 100 % Pure Rust: FUSE-Integration läuft nativ ohne `libfuse`-C-Bibliothek (`default-features = false`).
+- **Code-Qualität & Modularität**:
+  - Modularer Feature-Aufbau: FUSE ist als optionales Feature (`--features fuse`) entkoppelt; der Standard-Build ist 100 % portabel und benötigt weder Root-/Sudo-Rechte noch FUSE-Kernel-Treiber.
   - Strikte Zero-Panic-Policy via Clippy (`panic`, `unwrap_used`, `expect_used`, `panic_in_result_fn`, `unreachable`, `todo`, `unimplemented` auf `deny`).
   - Lizenzprüfung via [`deny.toml`](deny.toml) und automatisierter Integrationstest [`tests/test_license_compatibility.rs`](tests/test_license_compatibility.rs) zur Sicherstellung der MIT-Kompatibilität aller Abhängigkeiten.
   - Plattformübergreifend lauffähig (Linux X11/Wayland, macOS, Windows).
@@ -50,8 +50,13 @@ sudo pacman -S fuse3 pkgconf libx11 libxcursor libxrandr libxi mesa
 ```
 
 ### Bauen
+
 ```bash
+# Standard-Build (Portabel, ohne FUSE-Abhängigkeit)
 cargo build --release
+
+# Mit FUSE-Dateisystemunterstützung (Linux/Unix)
+cargo build --release --features fuse
 ```
 
 ## Verwendung
@@ -121,15 +126,17 @@ cargo run --release -- create --name "MeinTresor" --path "/pfad/zum/tresor"
 cargo run --release -- create --name "MeinTresor" --path "/pfad/zum/tresor" --password "geheim"
 ```
 
-#### Tresor mounten (FUSE)
+#### Tresor mounten (FUSE, erfordert `--features fuse`)
 ```bash
-cargo run --release -- mount --path "/pfad/zum/tresor" --mountpoint "/pfad/zum/mountpunkt"
+cargo run --release --features fuse -- mount --path "/pfad/zum/tresor" --mountpoint "/pfad/zum/mountpunkt"
 # Optional mit Passwort:
-cargo run --release -- mount --path "/pfad/zum/tresor" --mountpoint "/pfad/zum/mountpunkt" --password "geheim"
+cargo run --release --features fuse -- mount --path "/pfad/zum/tresor" --mountpoint "/pfad/zum/mountpunkt" --password "geheim"
 ```
 
 Zum Aushängen des FUSE-Verzeichnisses:
 ```bash
+cargo run --release --features fuse -- unmount --mountpoint "/pfad/zum/mountpunkt"
+# Oder via fusermount:
 fusermount -u "/pfad/zum/mountpunkt"
 ```
 
