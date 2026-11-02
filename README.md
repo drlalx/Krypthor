@@ -1,6 +1,12 @@
-# Cryptomator RS (Rust & egui / Ratatui / Web Daemon)
+# 🔐 Krypthor Vault (Rust & egui / Ratatui / Web Daemon)
 
-Eine moderne, speichersichere und performante Implementierung des Cryptomator-Konzepts in Rust mit einer Desktop-Oberfläche auf Basis von `egui` und `egui-elegance`, einem Terminal-Interface (TUI via `ratatui`), einem **Syncthing-ähnlichen Web-Dashboard / Hintergrund-Daemon** sowie einer vollständigen Befehlszeilenschnittstelle (CLI) inklusive FUSE-Dateisystemintegration.
+![Krypthor Vault](resources/images/krypthor_banner.svg)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-2024%20Edition-orange.svg)](https://www.rust-lang.org/)
+[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-brightgreen.svg)]()
+
+**Krypthor Vault** (`krypthor`) ist eine moderne, speichersichere und performante Zero-Knowledge-Tresor-Lösung in Pure Rust mit einer Desktop-Oberfläche auf Basis von `egui` und `egui-elegance`, einem Terminal-Interface (TUI via `ratatui`), einem **Syncthing-ähnlichen Web-Dashboard / Hintergrund-Daemon** sowie einer vollständigen Befehlszeilenschnittstelle (CLI) inklusive FUSE- und WebDAV-Dateisystemintegration.
 
 ## Features
 
@@ -62,7 +68,7 @@ cargo build --release --features fuse
 ## Verwendung
 
 ### 1. Grafische Oberfläche (GUI)
-Standardmäßig startet `cryptomator_rs` im Desktop-GUI-Modus:
+Standardmäßig startet `krypthor` im Desktop-GUI-Modus:
 ```bash
 cargo run --release
 ```

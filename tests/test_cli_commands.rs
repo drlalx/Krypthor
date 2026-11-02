@@ -9,8 +9,8 @@ static CLI_TEST_LOCK: Mutex<()> = Mutex::new(());
 #[test]
 fn test_cli_vault_workflow() {
     let _lock = CLI_TEST_LOCK.lock().unwrap();
-    let bin_path = env!("CARGO_BIN_EXE_cryptomator_rs");
-    let test_dir = std::env::temp_dir().join("cryptomator_cli_integration_test");
+    let bin_path = env!("CARGO_BIN_EXE_krypthor");
+    let test_dir = std::env::temp_dir().join("krypthor_cli_integration_test");
     if test_dir.exists() {
         let _ = fs::remove_dir_all(&test_dir);
     }
@@ -117,7 +117,7 @@ fn test_cli_vault_workflow() {
     assert!(stdout.contains("Vault successfully decrypted using recovery key!"));
 
     // 7. Store file via CLI (put)
-    let tmp_src = std::env::temp_dir().join("cryptomator_cli_sample.txt");
+    let tmp_src = std::env::temp_dir().join("krypthor_cli_sample.txt");
     fs::write(&tmp_src, b"Confidential financial data").unwrap();
 
     let output = Command::new(bin_path)
@@ -305,7 +305,7 @@ fn test_cli_vault_workflow() {
         .args([
             "unmount",
             "--mountpoint",
-            "/tmp/nonexistent_cryptomator_mount_point",
+            "/tmp/nonexistent_krypthor_mount_point",
         ])
         .output()
         .expect("Failed to execute unmount command");
@@ -322,7 +322,7 @@ fn test_cli_vault_workflow() {
         .expect("Failed to execute completions command");
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("complete -F _cryptomator_rs"));
+    assert!(stdout.contains("complete -F _krypthor"));
 
     // 9g. Test diff between vault file and local file
     let local_diff_file = test_dir.join("local_finances.txt");
@@ -480,7 +480,7 @@ fn test_cli_vault_workflow() {
     assert!(output.status.success());
 
     // 15. Import directory via CLI (import)
-    let import_src = std::env::temp_dir().join("cryptomator_cli_import_source");
+    let import_src = std::env::temp_dir().join("krypthor_cli_import_source");
     let _ = fs::remove_dir_all(&import_src);
     fs::create_dir_all(import_src.join("sub")).unwrap();
     fs::write(import_src.join("a.txt"), b"File A content").unwrap();
@@ -505,7 +505,7 @@ fn test_cli_vault_workflow() {
     assert!(stdout.contains("Successfully imported 2 file(s)"));
 
     // 16. Export vault via CLI (export)
-    let export_dst = std::env::temp_dir().join("cryptomator_cli_export_target");
+    let export_dst = std::env::temp_dir().join("krypthor_cli_export_target");
     let _ = fs::remove_dir_all(&export_dst);
 
     let output = Command::new(bin_path)
@@ -535,7 +535,7 @@ fn test_cli_vault_workflow() {
     assert!(export_dst.join("documents/legal").is_dir());
 
     // 16b. Selective subfolder export via CLI (export --subfolder)
-    let export_sub_dst = std::env::temp_dir().join("cryptomator_cli_export_sub_target");
+    let export_sub_dst = std::env::temp_dir().join("krypthor_cli_export_sub_target");
     let _ = fs::remove_dir_all(&export_sub_dst);
 
     let output = Command::new(bin_path)
@@ -1031,8 +1031,8 @@ fn test_cli_vault_workflow() {
 #[test]
 fn test_cli_keyfile_workflow() {
     let _lock = CLI_TEST_LOCK.lock().unwrap();
-    let bin_path = env!("CARGO_BIN_EXE_cryptomator_rs");
-    let test_dir = std::env::temp_dir().join("cryptomator_cli_keyfile_test");
+    let bin_path = env!("CARGO_BIN_EXE_krypthor");
+    let test_dir = std::env::temp_dir().join("krypthor_cli_keyfile_test");
     if test_dir.exists() {
         let _ = fs::remove_dir_all(&test_dir);
     }

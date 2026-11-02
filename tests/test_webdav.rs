@@ -4,9 +4,9 @@
 mod tests {
     use axum::body::{Body, to_bytes};
     use axum::http::{Request, StatusCode};
-    use cryptomator_rs::web_server::{AppState, build_router};
-    use cryptomator_rs::webdav_fs::create_webdav_handler;
-    use cryptomator_rs::{SavedVault, vault};
+    use krypthor::web_server::{AppState, build_router};
+    use krypthor::webdav_fs::create_webdav_handler;
+    use krypthor::{SavedVault, vault};
     use std::fs;
     use std::sync::Arc;
     use std::time::Instant;
@@ -15,7 +15,7 @@ mod tests {
     #[tokio::test]
     async fn test_webdav_operations_in_memory() {
         let temp_dir =
-            std::env::temp_dir().join(format!("cryptomator_webdav_test_{}", std::process::id()));
+            std::env::temp_dir().join(format!("krypthor_webdav_test_{}", std::process::id()));
         if temp_dir.exists() {
             let _ = fs::remove_dir_all(&temp_dir);
         }
@@ -131,7 +131,7 @@ mod tests {
     #[tokio::test]
     async fn test_daemon_webdav_routing() {
         let temp_dir = std::env::temp_dir().join(format!(
-            "cryptomator_daemon_webdav_test_{}",
+            "krypthor_daemon_webdav_test_{}",
             std::process::id()
         ));
         if temp_dir.exists() {
@@ -150,7 +150,7 @@ mod tests {
         let vault_path_str = vault_dir.to_str().unwrap().to_string();
 
         // Register vault in configuration
-        cryptomator_rs::save_saved_vaults(&[SavedVault {
+        krypthor::save_saved_vaults(&[SavedVault {
             name: "MyDaemonVault".to_string(),
             path: vault_path_str.clone(),
         }]);
@@ -169,7 +169,7 @@ mod tests {
             let mut unlocked = state.unlocked_vaults.write().await;
             unlocked.insert(
                 vault_path_str.clone(),
-                cryptomator_rs::web_server::UnlockedVaultInfo {
+                krypthor::web_server::UnlockedVaultInfo {
                     master_key,
                     last_activity: Instant::now(),
                     timeout_seconds: 3600,

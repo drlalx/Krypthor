@@ -25,24 +25,58 @@ enum UnlockedTab {
 }
 
 #[cfg(feature = "egui-ui")]
+pub fn load_app_icon_rgba() -> Option<(Vec<u8>, u32, u32)> {
+    const ICON_PNG: &[u8] = include_bytes!("../resources/images/krypthor.png");
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(ICON_PNG));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().ok()?;
+    let buf_size = reader.output_buffer_size()?;
+    let mut buf = vec![0u8; buf_size];
+    let info = reader.next_frame(&mut buf).ok()?;
+    let bytes = &buf[..info.buffer_size()];
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => bytes.to_vec(),
+        png::ColorType::Rgb => {
+            let mut out = Vec::with_capacity((info.width * info.height * 4) as usize);
+            for &[r, g, b] in bytes.as_chunks::<3>().0 {
+                out.extend_from_slice(&[r, g, b, 255]);
+            }
+            out
+        }
+        _ => return None,
+    };
+    Some((rgba, info.width, info.height))
+}
+
+#[cfg(feature = "egui-ui")]
 pub fn run_gui() -> eframe::Result {
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_inner_size([980.0, 680.0])
+        .with_min_inner_size([760.0, 520.0])
+        .with_title("Krypthor Vault");
+
+    if let Some((rgba, width, height)) = load_app_icon_rgba() {
+        viewport = viewport.with_icon(std::sync::Arc::new(egui::IconData {
+            rgba,
+            width,
+            height,
+        }));
+    }
+
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_inner_size([980.0, 680.0])
-            .with_min_inner_size([760.0, 520.0])
-            .with_title("Cryptomator RS - Rust Edition"),
+        viewport,
         ..Default::default()
     };
 
     eframe::run_native(
-        "Cryptomator RS",
+        "Krypthor Vault",
         options,
-        Box::new(|_cc| Ok(Box::new(CryptomatorApp::new()))),
+        Box::new(|_cc| Ok(Box::new(KrypthorApp::new()))),
     )
 }
 
 #[cfg(feature = "egui-ui")]
-struct CryptomatorApp {
+struct KrypthorApp {
     saved_vaults: Vec<SavedVault>,
     selected_vault_idx: Option<usize>,
     unlocked_vaults: HashMap<PathBuf, [u8; 32]>,
@@ -137,10 +171,11 @@ struct CryptomatorApp {
     web_server_running: bool,
     #[cfg(feature = "web")]
     web_server_shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    app_logo_texture: Option<egui::TextureHandle>,
 }
 
 #[cfg(feature = "egui-ui")]
-impl CryptomatorApp {
+impl KrypthorApp {
     fn new() -> Self {
         let saved_vaults = load_saved_vaults();
         let selected_vault_idx = if saved_vaults.is_empty() {
@@ -242,6 +277,7 @@ impl CryptomatorApp {
             web_server_running: false,
             #[cfg(feature = "web")]
             web_server_shutdown: None,
+            app_logo_texture: None,
         }
     }
 
@@ -362,7 +398,7 @@ impl CryptomatorApp {
 }
 
 #[cfg(feature = "egui-ui")]
-impl eframe::App for CryptomatorApp {
+impl eframe::App for KrypthorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
         Theme::slate().install(ui.ctx());
 
@@ -526,15 +562,35 @@ impl eframe::App for CryptomatorApp {
 }
 
 #[cfg(feature = "egui-ui")]
-impl CryptomatorApp {
+impl KrypthorApp {
     fn render_sidebar(&mut self, ui: &mut egui::Ui) {
+        if self.app_logo_texture.is_none()
+            && let Some((rgba, width, height)) = load_app_icon_rgba()
+        {
+            let image =
+                egui::ColorImage::from_rgba_unmultiplied([width as usize, height as usize], &rgba);
+            self.app_logo_texture = Some(ui.ctx().load_texture(
+                "krypthor_logo",
+                image,
+                egui::TextureOptions::LINEAR,
+            ));
+        }
+
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.label(RichText::new("🔒").size(24.0));
+            if let Some(ref tex) = self.app_logo_texture {
+                ui.add(
+                    egui::Image::from_texture(tex)
+                        .fit_to_exact_size(Vec2::new(34.0, 34.0))
+                        .corner_radius(7.0),
+                );
+            } else {
+                ui.label(RichText::new("🔒").size(24.0));
+            }
             ui.vertical(|ui| {
-                ui.label(RichText::new("Cryptomator RS").strong().size(16.0));
+                ui.label(RichText::new("Krypthor Vault").strong().size(16.0));
                 ui.label(
-                    RichText::new("Rust & egui Vaults")
+                    RichText::new("Zero-Knowledge Rust Vaults")
                         .color(Color32::from_rgb(140, 150, 175))
                         .size(11.0),
                 );
@@ -760,7 +816,7 @@ impl CryptomatorApp {
 
     fn render_welcome_view(&mut self, ui: &mut egui::Ui) {
         ui.add_space(20.0);
-        Card::new().heading("Welcome to Cryptomator RS").show(ui, |ui| {
+        Card::new().heading("Welcome to Krypthor Vault").show(ui, |ui| {
             ui.label(RichText::new("Secure client-side zero-knowledge encryption in pure Rust with an elegant egui desktop interface.").size(14.0));
             ui.add_space(16.0);
 
@@ -1133,16 +1189,14 @@ impl CryptomatorApp {
                         }
                     } else if ui.button("📂 Mount as FUSE Drive").clicked() {
                         let mount_dir = std::env::temp_dir()
-                            .join(format!("cryptomator_{}", vault_name.replace(' ', "_")));
+                            .join(format!("krypthor_{}", vault_name.replace(' ', "_")));
                         if let Err(e) = std::fs::create_dir_all(&mount_dir) {
                             self.status_message =
                                 Some((format!("Failed to create mount directory: {e}"), true));
                         } else if let Some(key) = self.unlocked_vaults.get(&vault_path) {
-                            let fs_impl =
-                                crate::fs_fuse::CryptomatorFS::new(vault_path.clone(), *key);
-                            let mount_opts = vec![fuser::MountOption::CUSTOM(
-                                "fsname=cryptomator-rs".to_string(),
-                            )];
+                            let fs_impl = crate::fs_fuse::KrypthorFS::new(vault_path.clone(), *key);
+                            let mount_opts =
+                                vec![fuser::MountOption::CUSTOM("fsname=krypthor".to_string())];
                             match fuser::spawn_mount2(fs_impl, &mount_dir, &mount_opts) {
                                 Ok(session) => {
                                     self.active_mounts
@@ -2332,5 +2386,21 @@ fn file_icon(path: &str) -> &'static str {
         "💻"
     } else {
         "📄"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_app_icon_rgba_valid() {
+        let icon = load_app_icon_rgba();
+        assert!(icon.is_some());
+        if let Some((rgba, width, height)) = icon {
+            assert_eq!(width, 256);
+            assert_eq!(height, 256);
+            assert_eq!(rgba.len(), (width * height * 4) as usize);
+        }
     }
 }

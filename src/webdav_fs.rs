@@ -22,13 +22,13 @@ fn clean_rel_path(dav_path: &DavPath) -> String {
 }
 
 #[derive(Clone, Debug)]
-pub struct CryptomatorDavMetaData {
+pub struct KrypthorDavMetaData {
     pub is_dir: bool,
     pub len: u64,
     pub modified: SystemTime,
 }
 
-impl DavMetaData for CryptomatorDavMetaData {
+impl DavMetaData for KrypthorDavMetaData {
     fn len(&self) -> u64 {
         self.len
     }
@@ -43,20 +43,20 @@ impl DavMetaData for CryptomatorDavMetaData {
 }
 
 #[derive(Clone, Debug)]
-pub struct CryptomatorDavDirEntry {
+pub struct KrypthorDavDirEntry {
     pub name: String,
     pub is_dir: bool,
     pub len: u64,
     pub modified: SystemTime,
 }
 
-impl DavDirEntry for CryptomatorDavDirEntry {
+impl DavDirEntry for KrypthorDavDirEntry {
     fn name(&self) -> Vec<u8> {
         self.name.as_bytes().to_vec()
     }
 
     fn metadata(&self) -> FsFuture<'_, Box<dyn DavMetaData>> {
-        let meta = CryptomatorDavMetaData {
+        let meta = KrypthorDavMetaData {
             is_dir: self.is_dir,
             len: self.len,
             modified: self.modified,
@@ -66,7 +66,7 @@ impl DavDirEntry for CryptomatorDavDirEntry {
 }
 
 #[derive(Debug)]
-pub struct CryptomatorDavFile {
+pub struct KrypthorDavFile {
     vault_dir: PathBuf,
     master_key: [u8; 32],
     rel_path: String,
@@ -76,9 +76,9 @@ pub struct CryptomatorDavFile {
     last_modified: SystemTime,
 }
 
-impl DavFile for CryptomatorDavFile {
+impl DavFile for KrypthorDavFile {
     fn metadata(&mut self) -> FsFuture<'_, Box<dyn DavMetaData>> {
-        let meta = CryptomatorDavMetaData {
+        let meta = KrypthorDavMetaData {
             is_dir: false,
             len: self.buffer.len() as u64,
             modified: self.last_modified,
@@ -180,7 +180,7 @@ impl DavFile for CryptomatorDavFile {
     }
 }
 
-impl Drop for CryptomatorDavFile {
+impl Drop for KrypthorDavFile {
     fn drop(&mut self) {
         if self.modified {
             let _ = vault::write_file(
@@ -195,12 +195,12 @@ impl Drop for CryptomatorDavFile {
 }
 
 #[derive(Clone, Debug)]
-pub struct CryptomatorDavFs {
+pub struct KrypthorDavFs {
     vault_dir: PathBuf,
     master_key: [u8; 32],
 }
 
-impl CryptomatorDavFs {
+impl KrypthorDavFs {
     pub fn new(vault_dir: PathBuf, master_key: [u8; 32]) -> Self {
         Self {
             vault_dir,
@@ -209,7 +209,7 @@ impl CryptomatorDavFs {
     }
 }
 
-impl DavFileSystem for CryptomatorDavFs {
+impl DavFileSystem for KrypthorDavFs {
     fn open<'a>(
         &'a self,
         path: &'a DavPath,
@@ -250,7 +250,7 @@ impl DavFileSystem for CryptomatorDavFs {
                 return Err(FsError::NotFound);
             }
 
-            let file = CryptomatorDavFile {
+            let file = KrypthorDavFile {
                 vault_dir: self.vault_dir.clone(),
                 master_key: self.master_key,
                 rel_path: rel,
@@ -282,7 +282,7 @@ impl DavFileSystem for CryptomatorDavFs {
             };
 
             let mut subdirs: HashMap<String, SystemTime> = HashMap::new();
-            let mut direct_files: Vec<CryptomatorDavDirEntry> = Vec::new();
+            let mut direct_files: Vec<KrypthorDavDirEntry> = Vec::new();
 
             for item in files {
                 if item.path.starts_with(".trash/")
@@ -303,7 +303,7 @@ impl DavFileSystem for CryptomatorDavFs {
                         if parts.next().is_some() {
                             subdirs.entry(first_part.to_string()).or_insert(mtime);
                         } else {
-                            direct_files.push(CryptomatorDavDirEntry {
+                            direct_files.push(KrypthorDavDirEntry {
                                 name: first_part.to_string(),
                                 is_dir: false,
                                 len: item.size,
@@ -317,7 +317,7 @@ impl DavFileSystem for CryptomatorDavFs {
             let mut entries: Vec<Box<dyn DavDirEntry>> = Vec::new();
 
             for (dir_name, mtime) in subdirs {
-                entries.push(Box::new(CryptomatorDavDirEntry {
+                entries.push(Box::new(KrypthorDavDirEntry {
                     name: dir_name,
                     is_dir: true,
                     len: 0,
@@ -339,7 +339,7 @@ impl DavFileSystem for CryptomatorDavFs {
         async move {
             let rel = clean_rel_path(path);
             if rel.is_empty() {
-                let root_meta = CryptomatorDavMetaData {
+                let root_meta = KrypthorDavMetaData {
                     is_dir: true,
                     len: 0,
                     modified: SystemTime::now(),
@@ -356,7 +356,7 @@ impl DavFileSystem for CryptomatorDavFs {
                         .modified
                         .map(|m| UNIX_EPOCH + Duration::from_secs(m))
                         .unwrap_or_else(SystemTime::now);
-                    let meta = CryptomatorDavMetaData {
+                    let meta = KrypthorDavMetaData {
                         is_dir: false,
                         len: item.size,
                         modified: mtime,
@@ -380,7 +380,7 @@ impl DavFileSystem for CryptomatorDavFs {
             }
 
             if is_directory {
-                let meta = CryptomatorDavMetaData {
+                let meta = KrypthorDavMetaData {
                     is_dir: true,
                     len: 0,
                     modified: dir_modified,
@@ -478,7 +478,7 @@ pub fn create_webdav_handler(
     master_key: [u8; 32],
     prefix: Option<&str>,
 ) -> dav_server::DavHandler {
-    let fs = CryptomatorDavFs::new(vault_dir, master_key);
+    let fs = KrypthorDavFs::new(vault_dir, master_key);
     let mut builder = dav_server::DavHandler::builder()
         .filesystem(Box::new(fs))
         .locksystem(dav_server::fakels::FakeLs::new());

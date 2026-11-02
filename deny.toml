@@ -1,4 +1,4 @@
-# cargo-deny configuration for cryptomator_rs
+# cargo-deny configuration for krypthor
 # Ensures all dependencies are licensed and compatible with the MIT license.
 # Reference: https://embarkstudios.github.io/cargo-deny/
 

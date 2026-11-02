@@ -274,6 +274,19 @@ async fn index_handler() -> Html<&'static str> {
     Html(HTML)
 }
 
+async fn icon_svg_handler() -> impl IntoResponse {
+    const SVG: &str = include_str!("../resources/images/krypthor.svg");
+    (
+        [(header::CONTENT_TYPE, "image/svg+xml; charset=utf-8")],
+        SVG,
+    )
+}
+
+async fn icon_png_handler() -> impl IntoResponse {
+    const PNG: &[u8] = include_bytes!("../resources/images/krypthor.png");
+    ([(header::CONTENT_TYPE, "image/png")], PNG)
+}
+
 async fn status_handler() -> Json<StatusResponse> {
     Json(StatusResponse {
         status: "ok",
@@ -1385,7 +1398,7 @@ pub async fn handle_daemon_webdav_request(
         None => {
             return (
                 StatusCode::UNAUTHORIZED,
-                [("WWW-Authenticate", "Basic realm=\"Cryptomator WebDAV\"")],
+                [("WWW-Authenticate", "Basic realm=\"Krypthor WebDAV\"")],
                 "Vault is locked. Please unlock the vault via the Web-Dashboard or REST API first.",
             )
                 .into_response();
@@ -1407,6 +1420,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let fallback_state = Arc::clone(&state);
     Router::new()
         .route("/", get(index_handler))
+        .route("/icon.svg", get(icon_svg_handler))
+        .route("/favicon.svg", get(icon_svg_handler))
+        .route("/icon.png", get(icon_png_handler))
+        .route("/favicon.png", get(icon_png_handler))
         .route("/api/status", get(status_handler))
         .route("/api/system/benchmark", get(system_benchmark_handler))
         .route("/api/system/doctor", get(system_doctor_handler))
@@ -1495,7 +1512,7 @@ pub async fn run_server_with_shutdown(
     let addr_str = format!("{host}:{port}");
     let listener = tokio::net::TcpListener::bind(&addr_str).await?;
     println!("╔═══════════════════════════════════════════════════════════════╗");
-    println!("║             Cryptomator RS - Web Control Server               ║");
+    println!("║             Krypthor Vault - Web Control Server               ║");
     println!("╠═══════════════════════════════════════════════════════════════╣");
     println!("║ Web-Dashboard: http://{:<39}  ║", addr_str);
     println!("║ Status:        Online (Syncthing-style headless daemon)       ║");
@@ -1551,9 +1568,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_web_icons_endpoints() {
+        let state = Arc::new(AppState::default());
+        let router = build_router(state.clone());
+
+        let svg_res = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/icon.svg")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(svg_res.status(), StatusCode::OK);
+        assert_eq!(
+            svg_res.headers().get(header::CONTENT_TYPE).unwrap(),
+            "image/svg+xml; charset=utf-8"
+        );
+
+        let png_res = router
+            .oneshot(
+                Request::builder()
+                    .uri("/icon.png")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(png_res.status(), StatusCode::OK);
+        assert_eq!(
+            png_res.headers().get(header::CONTENT_TYPE).unwrap(),
+            "image/png"
+        );
+    }
+
+    #[tokio::test]
     async fn test_web_api_full_vault_lifecycle() {
         let _guard = TEST_LOCK.lock().await;
-        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_vault");
+        let temp_dir = std::env::temp_dir().join("krypthor_web_test_vault");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
@@ -1700,7 +1754,7 @@ mod tests {
     #[tokio::test]
     async fn test_web_api_change_password_and_recovery() {
         let _guard = TEST_LOCK.lock().await;
-        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_pw_change");
+        let temp_dir = std::env::temp_dir().join("krypthor_web_test_pw_change");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
@@ -2102,7 +2156,7 @@ mod tests {
     #[tokio::test]
     async fn test_web_api_keyfile_lifecycle() {
         let _guard = TEST_LOCK.lock().await;
-        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_kf_lifecycle");
+        let temp_dir = std::env::temp_dir().join("krypthor_web_test_kf_lifecycle");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
@@ -2237,7 +2291,7 @@ mod tests {
     async fn test_web_api_find_and_metadata() {
         let _guard = TEST_LOCK.lock().await;
         let original_saved = load_saved_vaults();
-        let temp_dir = std::env::temp_dir().join("cryptomator_web_find_test");
+        let temp_dir = std::env::temp_dir().join("krypthor_web_find_test");
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
 
@@ -2360,7 +2414,7 @@ mod tests {
     #[tokio::test]
     async fn test_web_api_grep() {
         let _guard = TEST_LOCK.lock().await;
-        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_grep");
+        let temp_dir = std::env::temp_dir().join("krypthor_web_test_grep");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
@@ -2482,7 +2536,7 @@ mod tests {
     #[tokio::test]
     async fn test_web_api_diff() {
         let _guard = TEST_LOCK.lock().await;
-        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_diff");
+        let temp_dir = std::env::temp_dir().join("krypthor_web_test_diff");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }
@@ -2588,7 +2642,7 @@ mod tests {
     #[tokio::test]
     async fn test_web_api_trash() {
         let _guard = TEST_LOCK.lock().await;
-        let temp_dir = std::env::temp_dir().join("cryptomator_web_test_trash");
+        let temp_dir = std::env::temp_dir().join("krypthor_web_test_trash");
         if temp_dir.exists() {
             let _ = std::fs::remove_dir_all(&temp_dir);
         }

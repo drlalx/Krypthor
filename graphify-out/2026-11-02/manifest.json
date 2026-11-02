@@ -1,0 +1,158 @@
+{
+  "Cargo.toml": {
+    "mtime": 1793636587.8766956,
+    "seen": 1793636805.9793804,
+    "ast_hash": "68747ec6b8d8c0c5d3a7d098c50ce1e6",
+    "semantic_hash": ""
+  },
+  "gen-context.config.json": {
+    "mtime": 1787663544.56255,
+    "seen": 1793486666.8897212,
+    "ast_hash": "76c48a2de17b8a02cad40cf6dfb6fd66",
+    "semantic_hash": "76c48a2de17b8a02cad40cf6dfb6fd66"
+  },
+  "src/cli.rs": {
+    "mtime": 1793636589.8407767,
+    "seen": 1793636805.979396,
+    "ast_hash": "6ae5e868a6475f47957678d942f84eb0",
+    "semantic_hash": ""
+  },
+  "src/egui_ui.rs": {
+    "mtime": 1793636766.745077,
+    "seen": 1793636805.9794037,
+    "ast_hash": "177fa0961a3ba93e97879d8b414976a8",
+    "semantic_hash": ""
+  },
+  "src/fs_fuse.rs": {
+    "mtime": 1792848482.259587,
+    "seen": 1793486666.8897345,
+    "ast_hash": "88df1fa6753f4ee7f509a65f7f073646",
+    "semantic_hash": "88df1fa6753f4ee7f509a65f7f073646"
+  },
+  "src/main.rs": {
+    "mtime": 1793636766.8720822,
+    "seen": 1793636805.9794214,
+    "ast_hash": "cc96dc6dc2087777acc4f06d59e5fd44",
+    "semantic_hash": ""
+  },
+  "src/tui_app.rs": {
+    "mtime": 1793636766.7730782,
+    "seen": 1793636805.9794266,
+    "ast_hash": "3ef18cdd4a8c4be9a7a3fe6bc5e348e8",
+    "semantic_hash": ""
+  },
+  "src/vault.rs": {
+    "mtime": 1793567713.0981216,
+    "seen": 1793567874.9694872,
+    "ast_hash": "d4c30a3df879538f76e2838fa7ca20f4",
+    "semantic_hash": ""
+  },
+  "src/web_server.rs": {
+    "mtime": 1793636672.2681756,
+    "seen": 1793636805.9794385,
+    "ast_hash": "e3bf12e753bb254fc5fdd565dd814e9f",
+    "semantic_hash": ""
+  },
+  "tests/test_cli_commands.rs": {
+    "mtime": 1793636710.1477392,
+    "seen": 1793636805.979451,
+    "ast_hash": "70f3e475f6a43174ea6b07871b147ce3",
+    "semantic_hash": ""
+  },
+  "tests/test_license_compatibility.rs": {
+    "mtime": 1793636715.1469455,
+    "seen": 1793636805.979458,
+    "ast_hash": "2810798444527334b794ff9dd7b4b5ce",
+    "semantic_hash": ""
+  },
+  ".github/context-src.md": {
+    "mtime": 1792273002.5752912,
+    "seen": 1793486666.8897648,
+    "ast_hash": "ac0b98e5afd142e09ba366d3be3b17c5",
+    "semantic_hash": "ac0b98e5afd142e09ba366d3be3b17c5"
+  },
+  ".github/copilot-instructions.md": {
+    "mtime": 1792273002.5772913,
+    "seen": 1793486666.889769,
+    "ast_hash": "cc36df0693cdbbdd756786c7194fc324",
+    "semantic_hash": "cc36df0693cdbbdd756786c7194fc324"
+  },
+  ".github/gemini-context.md": {
+    "mtime": 1792273002.5782914,
+    "seen": 1793486666.8897734,
+    "ast_hash": "08edc0573be3023064d95a0943fb4699",
+    "semantic_hash": "08edc0573be3023064d95a0943fb4699"
+  },
+  ".github/openai-context.md": {
+    "mtime": 1792273002.5772913,
+    "seen": 1793486666.8897774,
+    "ast_hash": "baf94b49e5c1f0f65bb038d9a492b199",
+    "semantic_hash": "baf94b49e5c1f0f65bb038d9a492b199"
+  },
+  "AGENTS.md": {
+    "mtime": 1793636750.824419,
+    "seen": 1793636805.9794905,
+    "ast_hash": "ac9e26963d1b4ca85c8ccdd70d465dd0",
+    "semantic_hash": ""
+  },
+  "README.md": {
+    "mtime": 1793636747.9783015,
+    "seen": 1793636805.9795027,
+    "ast_hash": "58fb053c2b7afcd251cffcb6de983de2",
+    "semantic_hash": ""
+  },
+  "src/web/index.html": {
+    "mtime": 1793636675.7083175,
+    "seen": 1793636805.979508,
+    "ast_hash": "c9ba2b700c1bc78022b9013e8d1d5efe",
+    "semantic_hash": ""
+  },
+  "src/lib.rs": {
+    "mtime": 1793628128.3692265,
+    "seen": 1793628408.3679273,
+    "ast_hash": "07801d2936994f9fd40e55dce912d478",
+    "semantic_hash": ""
+  },
+  "src/webdav_fs.rs": {
+    "mtime": 1793628052.7271576,
+    "seen": 1793628408.3679492,
+    "ast_hash": "4e1e531da4cbe6433dfadf46835e6d1c",
+    "semantic_hash": ""
+  },
+  "tests/test_webdav.rs": {
+    "mtime": 1793636713.0728598,
+    "seen": 1793636805.979464,
+    "ast_hash": "1749d8de4638e598e5588195102b9647",
+    "semantic_hash": ""
+  },
+  "resources/images/krypthor.png": {
+    "mtime": 1793636552.0912218,
+    "seen": 1793636805.979512,
+    "ast_hash": "0f8037d89f1bd8d8a3de4df53c6c1e18",
+    "semantic_hash": ""
+  },
+  "resources/images/krypthor.svg": {
+    "mtime": 1793632299.7983441,
+    "seen": 1793636805.9795163,
+    "ast_hash": "5af931de0bb8977a97638eeb997cff55",
+    "semantic_hash": ""
+  },
+  "resources/images/krypthor_banner.png": {
+    "mtime": 1793636552.6982467,
+    "seen": 1793636805.9795198,
+    "ast_hash": "e353870e165884aaeabebcedda828c43",
+    "semantic_hash": ""
+  },
+  "resources/images/krypthor_banner.svg": {
+    "mtime": 1793636542.2648172,
+    "seen": 1793636805.9795237,
+    "ast_hash": "b5ce27e14143ef4bfc7d52430a613f1f",
+    "semantic_hash": ""
+  },
+  "resources/krypthor.png": {
+    "mtime": 1793636552.1658046,
+    "seen": 1793636805.9795275,
+    "ast_hash": "0f8037d89f1bd8d8a3de4df53c6c1e18",
+    "semantic_hash": ""
+  }
+}

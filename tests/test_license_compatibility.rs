@@ -232,7 +232,7 @@ fn test_all_dependencies_have_mit_compatible_licenses() {
         let version = pkg["version"].as_str().unwrap_or("0.0.0");
 
         // Skip root crate itself
-        if name == "cryptomator_rs" || name == "cryptomator-rs" {
+        if name == "krypthor" {
             continue;
         }
 

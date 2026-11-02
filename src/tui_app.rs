@@ -98,7 +98,7 @@ impl TuiApp {
             list_state,
             input_mode: InputMode::Normal,
             input_value: String::new(),
-            status_message: "Welcome to Cryptomator RS TUI!".to_string(),
+            status_message: "Welcome to Krypthor Vault TUI!".to_string(),
             status_is_error: false,
             temp_password: String::new(),
             create_name: String::new(),
@@ -206,7 +206,7 @@ impl TuiApp {
         #[cfg(all(unix, feature = "fuse"))]
         {
             let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/home/adrichel".to_string());
-            let mount_base = Path::new(&home_dir).join("CryptomatorMounts");
+            let mount_base = Path::new(&home_dir).join("KrypthorMounts");
             let mount_dir = mount_base.join(vault_name);
 
             if let Err(e) = std::fs::create_dir_all(&mount_dir) {
@@ -215,10 +215,8 @@ impl TuiApp {
                 return;
             }
 
-            let fs_impl = fs_fuse::CryptomatorFS::new(vault_path.clone(), master_key);
-            let mount_options = vec![fuser::MountOption::CUSTOM(
-                "fsname=cryptomator-rs".to_string(),
-            )];
+            let fs_impl = fs_fuse::KrypthorFS::new(vault_path.clone(), master_key);
+            let mount_options = vec![fuser::MountOption::CUSTOM("fsname=krypthor".to_string())];
 
             match fuser::spawn_mount2(fs_impl, &mount_dir, &mount_options) {
                 Ok(session) => {
@@ -776,7 +774,7 @@ fn ui_draw(f: &mut ratatui::Frame, app: &mut TuiApp) {
         .border_style(Style::default().fg(theme_cyan));
     let title_paragraph = Paragraph::new(Line::from(vec![
         Span::styled(
-            "🛡️  CRYPTOMATOR RS  ",
+            "🛡️  KRYPTHOR VAULT  ",
             Style::default().fg(theme_cyan).add_modifier(Modifier::BOLD),
         ),
         Span::styled(

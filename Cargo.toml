@@ -1,14 +1,14 @@
 [package]
-name = "cryptomator_rs"
+name = "krypthor"
 version = "0.1.0"
 edition = "2024"
 authors = ["Alexander Drichel"]
 license = "MIT"
-description = "Modern, memory-safe Cryptomator vault implementation in Rust with egui GUI and Ratatui TUI."
+description = "Krypthor Vault: Modern, memory-safe zero-knowledge encrypted vaults in Rust with egui GUI, Ratatui TUI, and Web Daemon."
 
 [features]
 default = ["egui-ui", "tui", "web"]
-egui-ui = ["dep:eframe", "dep:egui", "dep:egui-elegance"]
+egui-ui = ["dep:eframe", "dep:egui", "dep:egui-elegance", "dep:png"]
 tui = ["dep:ratatui", "dep:crossterm"]
 web = ["dep:tokio", "dep:axum", "dep:tower", "dep:tower-http", "dep:mime_guess", "dep:zip", "dep:dav-server", "dep:futures-util"]
 fuse = ["dep:fuser", "dep:libc"]
@@ -30,6 +30,7 @@ ratatui = { version = "0.26", optional = true }
 crossterm = { version = "0.27", optional = true }
 egui = { version = "0.36", optional = true }
 egui-elegance = { version = "0.16", optional = true }
+png = { version = "0.18", optional = true }
 tokio = { version = "1.43", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time", "signal"], optional = true }
 axum = { version = "0.8", features = ["multipart", "tokio", "json"], optional = true }
 tower = { version = "0.5", features = ["util"], optional = true }

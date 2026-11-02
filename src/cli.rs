@@ -1,8 +1,8 @@
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
-#[command(name = "cryptomator_rs")]
-#[command(about = "Cryptomator client-side encryption tool in Rust", long_about = None)]
+#[command(name = "krypthor")]
+#[command(about = "Krypthor Vault - Zero-knowledge client-side encryption tool in Rust", long_about = None)]
 pub struct CliArgs {
     /// Start the Terminal User Interface (TUI)
     #[arg(long)]

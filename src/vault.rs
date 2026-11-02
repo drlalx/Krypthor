@@ -1818,7 +1818,7 @@ pub fn run_doctor(vault_paths: &[String]) -> DoctorReport {
 
     // 2. Temp Directory write test
     let temp_dir = std::env::temp_dir();
-    let test_file = temp_dir.join(format!("cryptomator_probe_{}.tmp", std::process::id()));
+    let test_file = temp_dir.join(format!("krypthor_probe_{}.tmp", std::process::id()));
     match fs::write(&test_file, b"probe") {
         Ok(_) => {
             let _ = fs::remove_file(&test_file);
@@ -1960,7 +1960,7 @@ mod tests {
 
     #[test]
     fn test_vault_lifecycle() {
-        let test_dir = std::env::temp_dir().join("cryptomator_test_vault");
+        let test_dir = std::env::temp_dir().join("krypthor_test_vault");
         if test_dir.exists() {
             let _ = fs::remove_dir_all(&test_dir);
         }
@@ -2000,7 +2000,7 @@ mod tests {
 
     #[test]
     fn test_change_vault_password() {
-        let test_dir = std::env::temp_dir().join("cryptomator_test_change_pw");
+        let test_dir = std::env::temp_dir().join("krypthor_test_change_pw");
         if test_dir.exists() {
             let _ = fs::remove_dir_all(&test_dir);
         }
@@ -2048,7 +2048,7 @@ mod tests {
 
     #[test]
     fn test_rename_file_and_dir() {
-        let test_dir = std::env::temp_dir().join("cryptomator_test_rename");
+        let test_dir = std::env::temp_dir().join("krypthor_test_rename");
         if test_dir.exists() {
             let _ = fs::remove_dir_all(&test_dir);
         }
@@ -2090,7 +2090,7 @@ mod tests {
 
     #[test]
     fn test_vault_with_keyfile() {
-        let test_dir = std::env::temp_dir().join("cryptomator_test_vault_keyfile");
+        let test_dir = std::env::temp_dir().join("krypthor_test_vault_keyfile");
         let keyfile_path = std::env::temp_dir().join("test_keyfile.key");
         let wrong_keyfile_path = std::env::temp_dir().join("wrong_keyfile.key");
 
@@ -2180,7 +2180,7 @@ mod tests {
 
     #[test]
     fn test_vault_stats() {
-        let test_dir = std::env::temp_dir().join("cryptomator_test_stats");
+        let test_dir = std::env::temp_dir().join("krypthor_test_stats");
         if test_dir.exists() {
             let _ = fs::remove_dir_all(&test_dir);
         }
@@ -2211,9 +2211,9 @@ mod tests {
 
     #[test]
     fn test_create_dir_import_export() {
-        let test_dir = std::env::temp_dir().join("cryptomator_import_export_test");
-        let src_dir = std::env::temp_dir().join("cryptomator_test_src_tree");
-        let dest_dir = std::env::temp_dir().join("cryptomator_test_dest_tree");
+        let test_dir = std::env::temp_dir().join("krypthor_import_export_test");
+        let src_dir = std::env::temp_dir().join("krypthor_test_src_tree");
+        let dest_dir = std::env::temp_dir().join("krypthor_test_dest_tree");
 
         let _ = fs::remove_dir_all(&test_dir);
         let _ = fs::remove_dir_all(&src_dir);
@@ -2259,7 +2259,7 @@ mod tests {
         assert!(dest_dir.join("empty_folder").is_dir());
 
         // 5. Selective subfolder export
-        let sub_dest = std::env::temp_dir().join("cryptomator_lifecycle_sub_dest");
+        let sub_dest = std::env::temp_dir().join("krypthor_lifecycle_sub_dest");
         let _ = fs::remove_dir_all(&sub_dest);
         let sub_exported = export_vault(&test_dir, &key, &sub_dest, Some("backup/nested")).unwrap();
         assert_eq!(sub_exported, 1);
@@ -2278,7 +2278,7 @@ mod tests {
     #[cfg(feature = "web")]
     #[test]
     fn test_export_vault_zip() {
-        let test_dir = std::env::temp_dir().join("cryptomator_zip_test");
+        let test_dir = std::env::temp_dir().join("krypthor_zip_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "zip_pw", None).unwrap();
@@ -2330,7 +2330,7 @@ mod tests {
 
     #[test]
     fn test_verify_vault_integrity() {
-        let test_dir = std::env::temp_dir().join("cryptomator_integrity_test");
+        let test_dir = std::env::temp_dir().join("krypthor_integrity_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "verify_pw", None).unwrap();
@@ -2374,7 +2374,7 @@ mod tests {
 
     #[test]
     fn test_masterkey_backup_and_recovery() {
-        let test_dir = std::env::temp_dir().join("cryptomator_masterkey_backup_test");
+        let test_dir = std::env::temp_dir().join("krypthor_masterkey_backup_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         // 1. Create vault
@@ -2423,7 +2423,7 @@ mod tests {
 
     #[test]
     fn test_file_metadata_and_find() {
-        let test_dir = std::env::temp_dir().join("cryptomator_metadata_find_test");
+        let test_dir = std::env::temp_dir().join("krypthor_metadata_find_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "find_pw", None).unwrap();
@@ -2460,7 +2460,7 @@ mod tests {
 
     #[test]
     fn test_streaming_read_and_write() {
-        let test_dir = std::env::temp_dir().join("cryptomator_stream_test");
+        let test_dir = std::env::temp_dir().join("krypthor_stream_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "streampw", None).unwrap();
@@ -2504,7 +2504,7 @@ mod tests {
 
     #[test]
     fn test_delete_dir() {
-        let test_dir = std::env::temp_dir().join("cryptomator_delete_dir_test");
+        let test_dir = std::env::temp_dir().join("krypthor_delete_dir_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "deldir_pw", None).unwrap();
@@ -2535,7 +2535,7 @@ mod tests {
         assert!(bench.aes_gcm_decrypt_mb_per_sec > 0.0);
         assert!(bench.sha256_hashes_per_sec > 0.0);
 
-        let test_dir = std::env::temp_dir().join("cryptomator_doctor_test");
+        let test_dir = std::env::temp_dir().join("krypthor_doctor_test");
         let _ = fs::remove_dir_all(&test_dir);
         create_vault(&test_dir, "doc_pw", None).unwrap();
 
@@ -2559,7 +2559,7 @@ mod tests {
 
     #[test]
     fn test_copy_file_and_dir() {
-        let test_dir = std::env::temp_dir().join("cryptomator_copy_test");
+        let test_dir = std::env::temp_dir().join("krypthor_copy_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "copy_pw", None).unwrap();
@@ -2596,7 +2596,7 @@ mod tests {
 
     #[test]
     fn test_hash_file_and_prune() {
-        let test_dir = std::env::temp_dir().join("cryptomator_hash_prune_test");
+        let test_dir = std::env::temp_dir().join("krypthor_hash_prune_test");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "hash_pw", None).unwrap();
@@ -2638,7 +2638,7 @@ mod tests {
 
     #[test]
     fn test_grep_vault() {
-        let test_dir = std::env::temp_dir().join("cryptomator_test_grep");
+        let test_dir = std::env::temp_dir().join("krypthor_test_grep");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "grep_pass", None).unwrap();
@@ -2711,7 +2711,7 @@ mod tests {
 
     #[test]
     fn test_diff_vault_files_and_local() {
-        let test_dir = std::env::temp_dir().join("cryptomator_test_diff");
+        let test_dir = std::env::temp_dir().join("krypthor_test_diff");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "diff_pass", None).unwrap();
@@ -2756,7 +2756,7 @@ mod tests {
 
     #[test]
     fn test_trash_lifecycle() {
-        let test_dir = std::env::temp_dir().join("cryptomator_test_trash");
+        let test_dir = std::env::temp_dir().join("krypthor_test_trash");
         let _ = fs::remove_dir_all(&test_dir);
 
         create_vault(&test_dir, "trash_pass", None).unwrap();

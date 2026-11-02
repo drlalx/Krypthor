@@ -3,7 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cryptomator RS - Web Control</title>
+  <title>Krypthor Vault - Web Control</title>
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="alternate icon" type="image/png" href="/icon.png">
   <style>
     :root {
       --bg-base: #0f1115;
@@ -67,15 +69,14 @@
       border-bottom: 1px solid var(--border);
     }
     .brand-icon {
-      width: 36px;
-      height: 36px;
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      width: 38px;
+      height: 38px;
       border-radius: var(--radius);
       display: flex;
       align-items: center;
       justify-content: center;
-      color: white;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+      overflow: hidden;
+      flex-shrink: 0;
     }
     .brand-title {
       font-size: 1.1rem;
@@ -499,13 +500,10 @@
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-icon">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-        </svg>
+        <img src="/icon.svg" alt="Krypthor Vault" width="38" height="38" style="display: block; width: 100%; height: 100%;" />
       </div>
       <div>
-        <div class="brand-title">Cryptomator RS</div>
+        <div class="brand-title">Krypthor Vault</div>
         <div class="badge">Web Daemon</div>
       </div>
     </div>

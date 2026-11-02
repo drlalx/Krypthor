@@ -31,14 +31,14 @@ pub enum FSNode {
     },
 }
 
-pub struct CryptomatorFS {
+pub struct KrypthorFS {
     vault_dir: PathBuf,
     master_key: [u8; 32],
     inodes: HashMap<u64, FSNode>,
     next_inode: u64,
 }
 
-impl CryptomatorFS {
+impl KrypthorFS {
     pub fn new(vault_dir: PathBuf, master_key: [u8; 32]) -> Self {
         let mut fs = Self {
             vault_dir,
@@ -279,7 +279,7 @@ fn make_attr(ino: u64, size: u64, is_dir: bool) -> FileAttr {
     }
 }
 
-impl Filesystem for CryptomatorFS {
+impl Filesystem for KrypthorFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &std::ffi::OsStr, reply: ReplyEntry) {
         let name_str = name.to_string_lossy().to_string();
 
@@ -891,7 +891,7 @@ mod tests {
 
     #[test]
     fn test_fuse_tree_construction_and_read() {
-        let test_dir = std::env::temp_dir().join("cryptomator_fuse_tree_test");
+        let test_dir = std::env::temp_dir().join("krypthor_fuse_tree_test");
         let _ = std::fs::remove_dir_all(&test_dir);
 
         vault::create_vault(&test_dir, "fusetest_pwd", None).unwrap();
@@ -907,7 +907,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut fs = CryptomatorFS::new(test_dir.clone(), master_key);
+        let mut fs = KrypthorFS::new(test_dir.clone(), master_key);
 
         // 1. Verify root inode children
         let root = fs.inodes.get(&1).unwrap();
@@ -957,7 +957,7 @@ mod tests {
 
     #[test]
     fn test_fuse_write_and_flush() {
-        let test_dir = std::env::temp_dir().join("cryptomator_fuse_write_test");
+        let test_dir = std::env::temp_dir().join("krypthor_fuse_write_test");
         let _ = std::fs::remove_dir_all(&test_dir);
 
         vault::create_vault(&test_dir, "fusetest_pwd", None).unwrap();
@@ -965,7 +965,7 @@ mod tests {
 
         vault::write_file(&test_dir, &master_key, "notes.txt", b"Original notes").unwrap();
 
-        let mut fs = CryptomatorFS::new(test_dir.clone(), master_key);
+        let mut fs = KrypthorFS::new(test_dir.clone(), master_key);
         let root = fs.inodes.get(&1).unwrap();
         let note_ino = match root {
             FSNode::Directory { children, .. } => *children.get("notes.txt").unwrap(),
@@ -997,7 +997,7 @@ mod tests {
 
     #[test]
     fn test_fuse_rename_recursive() {
-        let test_dir = std::env::temp_dir().join("cryptomator_fuse_rename_test");
+        let test_dir = std::env::temp_dir().join("krypthor_fuse_rename_test");
         let _ = std::fs::remove_dir_all(&test_dir);
 
         vault::create_vault(&test_dir, "fusetest_pwd", None).unwrap();
@@ -1011,7 +1011,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut fs = CryptomatorFS::new(test_dir.clone(), master_key);
+        let mut fs = KrypthorFS::new(test_dir.clone(), master_key);
         let root = fs.inodes.get(&1).unwrap();
         let projects_ino = match root {
             FSNode::Directory { children, .. } => *children.get("projects").unwrap(),

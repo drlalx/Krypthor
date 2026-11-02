@@ -1,17 +1,17 @@
 use clap::Parser;
-use cryptomator_rs::cli;
+use krypthor::cli;
 #[cfg(feature = "egui-ui")]
-use cryptomator_rs::egui_ui;
+use krypthor::egui_ui;
 #[cfg(all(unix, feature = "fuse"))]
-use cryptomator_rs::fs_fuse;
+use krypthor::fs_fuse;
 #[cfg(feature = "tui")]
-use cryptomator_rs::tui_app;
-use cryptomator_rs::vault;
+use krypthor::tui_app;
+use krypthor::vault;
 #[cfg(feature = "web")]
-use cryptomator_rs::web_server;
+use krypthor::web_server;
 #[cfg(feature = "web")]
-use cryptomator_rs::webdav_fs;
-use cryptomator_rs::{SavedVault, load_saved_vaults, save_saved_vaults};
+use krypthor::webdav_fs;
+use krypthor::{SavedVault, load_saved_vaults, save_saved_vaults};
 use std::io::Write;
 use std::path::Path;
 
@@ -270,13 +270,10 @@ fn main() {
                             }
 
                             println!("Spawning FUSE mount at {mount_dir:?}...");
-                            let fs_impl = crate::fs_fuse::CryptomatorFS::new(
-                                path_buf.to_path_buf(),
-                                master_key,
-                            );
-                            let mount_options = vec![fuser::MountOption::CUSTOM(
-                                "fsname=cryptomator-rs".to_string(),
-                            )];
+                            let fs_impl =
+                                crate::fs_fuse::KrypthorFS::new(path_buf.to_path_buf(), master_key);
+                            let mount_options =
+                                vec![fuser::MountOption::CUSTOM("fsname=krypthor".to_string())];
 
                             MOUNT_RUNNING.store(true, std::sync::atomic::Ordering::SeqCst);
                             unsafe {
@@ -326,9 +323,7 @@ fn main() {
                 #[cfg(not(all(unix, feature = "fuse")))]
                 {
                     let _ = (path, mountpoint, password, keyfile);
-                    eprintln!(
-                        "Error: FUSE mounting is not enabled in this build of cryptomator_rs."
-                    );
+                    eprintln!("Error: FUSE mounting is not enabled in this build of krypthor.");
                     eprintln!(
                         "Please recompile with '--features fuse', or use WebDAV for drive access."
                     );
@@ -732,7 +727,7 @@ fn main() {
                             match vault::move_dir_to_trash(path_buf, &master_key, &file) {
                                 Ok((_trash_dir, count)) => {
                                     println!(
-                                        "Removed {count} item(s) in '{file}'. Moved to trash. Use 'cryptomator_rs trash restore' to recover or '--permanent' to delete without trash."
+                                        "Removed {count} item(s) in '{file}'. Moved to trash. Use 'krypthor trash restore' to recover or '--permanent' to delete without trash."
                                     );
                                 }
                                 Err(e) => {
@@ -744,7 +739,7 @@ fn main() {
                             match vault::move_to_trash(path_buf, &master_key, &file) {
                                 Ok(trash_path) => {
                                     println!(
-                                        "Moved '{file}' to trash as '{trash_path}'. Use 'cryptomator_rs trash restore' to recover or '--permanent' to delete without trash."
+                                        "Moved '{file}' to trash as '{trash_path}'. Use 'krypthor trash restore' to recover or '--permanent' to delete without trash."
                                     );
                                 }
                                 Err(e) => {
@@ -1416,9 +1411,7 @@ fn main() {
                 #[cfg(not(all(unix, feature = "fuse")))]
                 {
                     let _ = (mount_dir, force);
-                    eprintln!(
-                        "Error: FUSE unmounting is not enabled in this build of cryptomator_rs."
-                    );
+                    eprintln!("Error: FUSE unmounting is not enabled in this build of krypthor.");
                     eprintln!("Please recompile with '--features fuse'.");
                     std::process::exit(1);
                 }
@@ -1426,7 +1419,7 @@ fn main() {
             cli::Commands::Completions { shell } => {
                 use clap::CommandFactory;
                 let mut cmd = cli::CliArgs::command();
-                clap_complete::generate(shell, &mut cmd, "cryptomator_rs", &mut std::io::stdout());
+                clap_complete::generate(shell, &mut cmd, "krypthor", &mut std::io::stdout());
                 return;
             }
             cli::Commands::Diff {

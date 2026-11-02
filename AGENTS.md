@@ -1,4 +1,4 @@
-# AGENTS Memory - cryptomator_rs
+# AGENTS Memory - Krypthor Vault (krypthor)
 
 ## Globale Arbeitsweise
 
