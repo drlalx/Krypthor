@@ -26,6 +26,12 @@
 - **Terminal User Interface (TUI)**: Volles TUI-Interface basierend auf `ratatui` und `crossterm` zur Verwaltung und Navigation im Terminal inklusive Inaktivitäts-Auto-Lock.
 - **FUSE Dateisystem-Integration**: Erlaubt unter Linux/Unix das Einbinden des verschlüsselten Tresors direkt als virtuelles Verzeichnis im Dateisystem via Pure-Rust FUSE (ohne C `libfuse`-Bindung).
 - **Streaming I/O**: Direkte Stream-Verarbeitung (Reader/Writer) für `put`, `cat`, `import` und `export` zur Minimierung der RAM-Auslastung bei großen Datenmengen.
+- **Transparente Zstd-Kompression & Versionierter Payload-Header**:
+  - Jede verschlüsselte Datei enthält einen festen 24-Byte-Header (`b"KRYP"` Magic, Versionierung `v1`, Kompressions-Flag).
+  - Standardmäßig werden Text- und Datendateien vor der AES-256-GCM-Verschlüsselung transparent mit **`zstd`** komprimiert.
+  - Bereits komprimierte Formate (`.jpg`, `.zip`, `.mp4`, `.pdf` etc.) werden automatisch erkannt und ohne Kompressionsmehraufwand gespeichert.
+  - Pro Datei und Import feingranular steuerbar (`--compression auto|always|never`).
+  - Transparenter Abwärtskompatibilitäts-Fallback auf unversionierte v0-Payloads.
 - **Katastrophenschutz & Resilienz**: Atomare Schreibvorgänge via PID-Temporärdateien (`fs::rename`) sowie automatische Pflege von `masterkey.json.bkup` mit transparentem Fallback-Entsperren.
 - **CLI-Befehle**: Vollwertige Steuerung ohne GUI über 22 Subcommands (`create`, `mount`, `ls`, `find`, `put`, `cat`, `rm`, `cp`, `mv`, `stats`, `mkdir`, `export`, `import`, `verify`, `backup-key`, `restore-key`, `benchmark`, `doctor`, `hash`, `prune`, `tui`, `serve`).
 - **Sicherheitsarchitektur**:
@@ -55,7 +61,35 @@ sudo dnf install fuse3 pkgconf-pkg-config libX11-devel libXcursor-devel libXrand
 sudo pacman -S fuse3 pkgconf libx11 libxcursor libxrandr libxi mesa
 ```
 
-### Bauen
+### 1-Klick Installation (Syncthing-Stil)
+
+Krypthor Vault bietet automatisierte Installations-Skripte für alle drei großen Plattformen, die das Release-Binary kompilieren, Desktop-Starter/Icons einrichten und einen **Hintergrund-Daemon im Syncthing-Stil** (Auto-Start bei Login, Web-Dashboard auf Port 8080) konfigurieren:
+
+#### Linux (`systemd --user` + Desktop-Starter)
+```bash
+./scripts/install-linux.sh
+
+# Zur sauberen Deinstallation:
+./scripts/install-linux.sh --uninstall
+```
+
+#### macOS (`launchd` LaunchAgent + Web App)
+```bash
+./scripts/install-macos.sh
+
+# Zur sauberen Deinstallation:
+./scripts/install-macos.sh --uninstall
+```
+
+#### Windows (Scheduled Task + Startmenü / Desktop-Shortcuts)
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1
+
+# Zur sauberen Deinstallation:
+powershell -ExecutionPolicy Bypass -File .\scripts\install-windows.ps1 -Uninstall
+```
+
+### Manuelles Bauen
 
 ```bash
 # Standard-Build (Portabel, ohne FUSE-Abhängigkeit)
@@ -196,8 +230,13 @@ cargo run --release -- find --path "/pfad/zum/tresor" -q "bericht" -l
 ```
 
 #### Datei in Tresor verschlüsseln & ablegen (put)
+Standardmäßig wird intelligentes `auto`-Komprimieren mit Zstd angewandt (komprimiert Text/JSON/Code, überspringt inkomprimierbare Formate wie JPG, ZIP, MP4):
 ```bash
 cargo run --release -- put --path "/pfad/zum/tresor" --source "lokale_datei.txt" --target "ordner/datei.txt"
+
+# Komprimierung explizit steuern (--compression auto|always|never):
+cargo run --release -- put --path "/pfad/zum/tresor" --source "backup.raw" --target "ordner/backup.raw" --compression always
+cargo run --release -- put --path "/pfad/zum/tresor" --source "daten.bin" --target "ordner/daten.bin" --compression never
 ```
 
 #### Dateiinhalt entschlüsseln & ausgeben (cat)
@@ -281,6 +320,9 @@ cargo run --release -- export --path "/pfad/zum/tresor" --dest "/pfad/zum/zielor
 #### Lokales Verzeichnis rekursiv in den Tresor importieren (import)
 ```bash
 cargo run --release -- import --path "/pfad/zum/tresor" --source "/pfad/zur/quelle" --dest "backup"
+
+# Optional mit Kompressions-Modus (--compression auto|always|never):
+cargo run --release -- import --path "/pfad/zum/tresor" --source "/pfad/zur/quelle" --dest "backup" --compression auto
 ```
 
 #### Kryptografische Tresor-Integritätsprüfung (verify)
