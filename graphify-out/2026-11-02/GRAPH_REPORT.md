@@ -1,7 +1,7 @@
 # Graph Report - cryptomator_rs  (2026-11-02)
 
 ## Corpus Check
-- 20 files · ~50,616 words
+- 20 files · ~50,606 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: .toml 2, (none) 2)
 
@@ -53,10 +53,10 @@
 ## God Nodes (most connected - your core abstractions)
 1. `Commands` - 39 edges
 2. `AppState` - 34 edges
-3. `CryptomatorApp` - 31 edges
+3. `KrypthorApp` - 31 edges
 4. `ErrorResponse` - 29 edges
 5. `4. CLI-Befehle` - 29 edges
-6. `CryptomatorFS` - 22 edges
+6. `KrypthorFS` - 22 edges
 7. `write_file()` - 22 edges
 8. `unlock_vault()` - 21 edges
 9. `create_vault()` - 20 edges
@@ -89,7 +89,7 @@ Nodes (86): AddVaultRequest, AppState, backup_key_handler(), BackupKeyRequest, b
 
 ### Community 2 - "FUSE Filesystem & POSIX Errors"
 Cohesion: 0.08
-Nodes (10): CryptomatorFS, FSNode, Directory, File, get_decrypted_file_size(), make_attr(), test_fuse_rename_recursive(), test_fuse_tree_construction_and_read() (+2 more)
+Nodes (10): FSNode, Directory, File, get_decrypted_file_size(), KrypthorFS, make_attr(), test_fuse_rename_recursive(), test_fuse_tree_construction_and_read() (+2 more)
 
 ### Community 4 - "CLI Command Parser & Handlers"
 Cohesion: 0.05
@@ -117,7 +117,7 @@ Nodes (3): run_loop(), save_saved_vaults(), TuiApp
 
 ### Community 11 - "egui_ui.rs"
 Cohesion: 0.05
-Nodes (18): CryptomatorApp, file_icon(), load_app_icon_rgba(), run_gui(), test_load_app_icon_rgba_valid(), UnlockedTab, Files, Stats (+10 more)
+Nodes (18): file_icon(), KrypthorApp, load_app_icon_rgba(), run_gui(), test_load_app_icon_rgba_valid(), UnlockedTab, Files, Stats (+10 more)
 
 ### Community 12 - "TUI Input Modes & Prompts"
 Cohesion: 0.18
@@ -165,7 +165,7 @@ Nodes (6): CONFIG_FILE, load_saved_vaults(), save_saved_vaults(), SavedVault, CL
 
 ### Community 33 - "webdav_fs.rs"
 Cohesion: 0.08
-Nodes (8): clean_rel_path(), create_webdav_handler(), CryptomatorDavDirEntry, CryptomatorDavFile, CryptomatorDavFs, CryptomatorDavMetaData, run_webdav_server(), test_webdav_operations_in_memory()
+Nodes (8): clean_rel_path(), create_webdav_handler(), KrypthorDavDirEntry, KrypthorDavFile, KrypthorDavFs, KrypthorDavMetaData, run_webdav_server(), test_webdav_operations_in_memory()
 
 ## Knowledge Gaps
 - **102 isolated node(s):** `krypthor`, `Tui`, `Serve`, `Webdav`, `List` (+97 more)
@@ -175,7 +175,7 @@ Nodes (8): clean_rel_path(), create_webdav_handler(), CryptomatorDavDirEntry, Cr
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `CryptomatorApp` connect `egui_ui.rs` to `vault.rs`?**
+- **Why does `KrypthorApp` connect `egui_ui.rs` to `vault.rs`?**
   _High betweenness centrality (0.050) - this node is a cross-community bridge._
 - **What connects `krypthor`, `Tui`, `Serve` to the rest of the system?**
   _102 weakly-connected nodes found - possible documentation gaps or missing edges._
@@ -186,6 +186,6 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `Axum Web Server & REST API` be split into smaller, more focused modules?**
   _Cohesion score 0.06351678781585324 - nodes in this community are weakly interconnected._
 - **Should `FUSE Filesystem & POSIX Errors` be split into smaller, more focused modules?**
-  _Cohesion score 0.07619738751814223 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.0784313725490196 - nodes in this community are weakly interconnected._
 - **Should `CLI Command Parser & Handlers` be split into smaller, more focused modules?**
   _Cohesion score 0.04541062801932367 - nodes in this community are weakly interconnected._

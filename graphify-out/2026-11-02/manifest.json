@@ -18,51 +18,51 @@
     "semantic_hash": ""
   },
   "src/egui_ui.rs": {
-    "mtime": 1793636766.745077,
-    "seen": 1793636805.9794037,
-    "ast_hash": "177fa0961a3ba93e97879d8b414976a8",
+    "mtime": 1793637172.8438954,
+    "seen": 1793641310.5139859,
+    "ast_hash": "5d89275b47e874c31f9c3e8d2ac3db1e",
     "semantic_hash": ""
   },
   "src/fs_fuse.rs": {
-    "mtime": 1792848482.259587,
-    "seen": 1793486666.8897345,
-    "ast_hash": "88df1fa6753f4ee7f509a65f7f073646",
-    "semantic_hash": "88df1fa6753f4ee7f509a65f7f073646"
+    "mtime": 1793637150.0079482,
+    "seen": 1793641310.51399,
+    "ast_hash": "afc61a9cff7d1c649197ac2ce8f6be49",
+    "semantic_hash": ""
   },
   "src/main.rs": {
-    "mtime": 1793636766.8720822,
-    "seen": 1793636805.9794214,
-    "ast_hash": "cc96dc6dc2087777acc4f06d59e5fd44",
+    "mtime": 1793641277.1380448,
+    "seen": 1793641310.5139983,
+    "ast_hash": "57806180c3b797a679cd4abc7c85e410",
     "semantic_hash": ""
   },
   "src/tui_app.rs": {
-    "mtime": 1793636766.7730782,
-    "seen": 1793636805.9794266,
-    "ast_hash": "3ef18cdd4a8c4be9a7a3fe6bc5e348e8",
+    "mtime": 1793637182.211284,
+    "seen": 1793641310.514002,
+    "ast_hash": "5c2e572bacfaa9518625c27934441cf1",
     "semantic_hash": ""
   },
   "src/vault.rs": {
-    "mtime": 1793567713.0981216,
-    "seen": 1793567874.9694872,
-    "ast_hash": "d4c30a3df879538f76e2838fa7ca20f4",
+    "mtime": 1793641256.606183,
+    "seen": 1793641310.514007,
+    "ast_hash": "27bd496a7577292ef455e927e4da313a",
     "semantic_hash": ""
   },
   "src/web_server.rs": {
-    "mtime": 1793636672.2681756,
-    "seen": 1793636805.9794385,
-    "ast_hash": "e3bf12e753bb254fc5fdd565dd814e9f",
+    "mtime": 1793641256.609183,
+    "seen": 1793641310.5140107,
+    "ast_hash": "191949caf6d7a00981c14d82b61d12ae",
     "semantic_hash": ""
   },
   "tests/test_cli_commands.rs": {
-    "mtime": 1793636710.1477392,
-    "seen": 1793636805.979451,
-    "ast_hash": "70f3e475f6a43174ea6b07871b147ce3",
+    "mtime": 1793641256.6107159,
+    "seen": 1793641310.5140183,
+    "ast_hash": "0af80c6e1b74fa2f9ff4ab0b7742e8f9",
     "semantic_hash": ""
   },
   "tests/test_license_compatibility.rs": {
-    "mtime": 1793636715.1469455,
-    "seen": 1793636805.979458,
-    "ast_hash": "2810798444527334b794ff9dd7b4b5ce",
+    "mtime": 1793641266.7116072,
+    "seen": 1793641310.5140219,
+    "ast_hash": "19e02df42a2a31746fc2889a18dfbe30",
     "semantic_hash": ""
   },
   ".github/context-src.md": {
@@ -114,15 +114,15 @@
     "semantic_hash": ""
   },
   "src/webdav_fs.rs": {
-    "mtime": 1793628052.7271576,
-    "seen": 1793628408.3679492,
-    "ast_hash": "4e1e531da4cbe6433dfadf46835e6d1c",
+    "mtime": 1793637621.6697867,
+    "seen": 1793641310.5140145,
+    "ast_hash": "e97954f0491144922f8c5699b0480edd",
     "semantic_hash": ""
   },
   "tests/test_webdav.rs": {
-    "mtime": 1793636713.0728598,
-    "seen": 1793636805.979464,
-    "ast_hash": "1749d8de4638e598e5588195102b9647",
+    "mtime": 1793641256.6135507,
+    "seen": 1793641310.5140257,
+    "ast_hash": "d8bef7e2fe6f29eb4dc84a6c30fb50fd",
     "semantic_hash": ""
   },
   "resources/images/krypthor.png": {

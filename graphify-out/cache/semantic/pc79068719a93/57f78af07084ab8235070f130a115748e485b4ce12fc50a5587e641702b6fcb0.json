@@ -1,0 +1,1 @@
+{"nodes": [{"id": "resources_images_krypthor_banner_svg", "label": "Krypthor Banner (SVG)", "file_type": "image", "source_file": "resources/images/krypthor_banner.svg", "rationale": "Banner image featuring the logo and feature pills highlighting AES-256-GCM, Scrypt, FUSE, WebDAV, REST, egui, TUI.", "_origin": "semantic"}], "edges": [], "hyperedges": []}

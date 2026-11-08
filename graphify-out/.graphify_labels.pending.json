@@ -1,8 +1,25 @@
 {
   "0": "vault.rs",
   "3": "krypthor",
+  "8": "test_license_compatibility.rs",
   "11": "egui_ui.rs",
-  "25": "ui_draw",
-  "32": "test_webdav.rs",
-  "33": "webdav_fs.rs"
+  "17": "SavedVault",
+  "25": "main.rs",
+  "31": "unlock_vault",
+  "32": "decrypt_file_payload",
+  "33": "webdav_fs.rs",
+  "34": "test_trash_lifecycle",
+  "35": "CompressionMode",
+  "36": "list_files",
+  "37": "read_file",
+  "38": "list_files_with_details",
+  "39": "KrypthorApp",
+  "40": "lib.rs",
+  "41": "install-linux.sh",
+  "42": "install-macos.sh",
+  "43": "install-windows.ps1",
+  "44": "test_webdav.rs",
+  "45": "ViewMode",
+  "46": "load_app_icon_rgba",
+  "47": "UnlockedTab"
 }
