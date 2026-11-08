@@ -208,6 +208,9 @@ pub enum Commands {
         /// Optional path to a keyfile
         #[arg(short, long)]
         keyfile: Option<String>,
+        /// Compression mode: auto (default), always, or never
+        #[arg(long, value_enum, default_value = "auto")]
+        compression: crate::vault::CompressionMode,
     },
     /// Decrypt and print the contents of a file in the vault to stdout
     Cat {
@@ -349,6 +352,9 @@ pub enum Commands {
         /// Optional path to a keyfile
         #[arg(short, long)]
         keyfile: Option<String>,
+        /// Compression mode: auto (default), always, or never
+        #[arg(long, value_enum, default_value = "auto")]
+        compression: crate::vault::CompressionMode,
     },
     /// Verify vault integrity and authenticate all encrypted files
     Verify {

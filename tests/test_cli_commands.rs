@@ -1201,3 +1201,226 @@ fn test_cli_keyfile_workflow() {
         .output();
     let _ = fs::remove_dir_all(&test_dir);
 }
+
+#[test]
+fn test_cli_compression_modes() {
+    let _lock = CLI_TEST_LOCK.lock().unwrap();
+    let bin_path = env!("CARGO_BIN_EXE_krypthor");
+    let test_dir = std::env::temp_dir().join("krypthor_cli_compression_test");
+    if test_dir.exists() {
+        let _ = fs::remove_dir_all(&test_dir);
+    }
+    fs::create_dir_all(&test_dir).expect("create test_dir");
+
+    let vault_dir = test_dir.join("vault");
+    let vault_path = vault_dir.to_string_lossy().to_string();
+
+    // 1. Create vault
+    let output = Command::new(bin_path)
+        .args([
+            "create",
+            "--name",
+            "CompressionVault",
+            "--path",
+            &vault_path,
+            "--password",
+            "compress_secret123",
+        ])
+        .output()
+        .expect("create vault");
+    assert!(output.status.success());
+
+    // 2. Put text file with --compression auto
+    let sample_text = test_dir.join("large_sample.txt");
+    let text_bytes = b"Rust 2024 zero-knowledge encrypted vault with zstd compression! ".repeat(50);
+    fs::write(&sample_text, &text_bytes).expect("write sample text");
+
+    let output = Command::new(bin_path)
+        .args([
+            "put",
+            "--path",
+            &vault_path,
+            "--source",
+            &sample_text.to_string_lossy(),
+            "--target",
+            "docs/auto_compressed.txt",
+            "--password",
+            "compress_secret123",
+            "--compression",
+            "auto",
+        ])
+        .output()
+        .expect("put auto");
+    assert!(
+        output.status.success(),
+        "put auto failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify cat restores exact original content
+    let output = Command::new(bin_path)
+        .args([
+            "cat",
+            "--path",
+            &vault_path,
+            "--file",
+            "docs/auto_compressed.txt",
+            "--password",
+            "compress_secret123",
+        ])
+        .output()
+        .expect("cat auto");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, text_bytes);
+
+    // 3. Put with --compression never
+    let output = Command::new(bin_path)
+        .args([
+            "put",
+            "--path",
+            &vault_path,
+            "--source",
+            &sample_text.to_string_lossy(),
+            "--target",
+            "docs/uncompressed.txt",
+            "--password",
+            "compress_secret123",
+            "--compression",
+            "never",
+        ])
+        .output()
+        .expect("put never");
+    assert!(output.status.success());
+
+    let output = Command::new(bin_path)
+        .args([
+            "cat",
+            "--path",
+            &vault_path,
+            "--file",
+            "docs/uncompressed.txt",
+            "--password",
+            "compress_secret123",
+        ])
+        .output()
+        .expect("cat never");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, text_bytes);
+
+    // 4. Put with --compression always
+    let output = Command::new(bin_path)
+        .args([
+            "put",
+            "--path",
+            &vault_path,
+            "--source",
+            &sample_text.to_string_lossy(),
+            "--target",
+            "docs/forced.txt",
+            "--password",
+            "compress_secret123",
+            "--compression",
+            "always",
+        ])
+        .output()
+        .expect("put always");
+    assert!(output.status.success());
+
+    let output = Command::new(bin_path)
+        .args([
+            "cat",
+            "--path",
+            &vault_path,
+            "--file",
+            "docs/forced.txt",
+            "--password",
+            "compress_secret123",
+        ])
+        .output()
+        .expect("cat always");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, text_bytes);
+
+    // 5. Test import with --compression auto
+    let import_src = test_dir.join("to_import");
+    fs::create_dir_all(&import_src).expect("create import src");
+    fs::write(
+        import_src.join("sample.md"),
+        b"# Markdown document\nData line",
+    )
+    .expect("write md");
+    fs::write(import_src.join("photo.jpg"), b"JPEG_FAKE_DATA_123456").expect("write jpg");
+
+    let output = Command::new(bin_path)
+        .args([
+            "import",
+            "--path",
+            &vault_path,
+            "--source",
+            &import_src.to_string_lossy(),
+            "--dest",
+            "imported",
+            "--password",
+            "compress_secret123",
+            "--compression",
+            "auto",
+        ])
+        .output()
+        .expect("import with auto compression");
+    assert!(
+        output.status.success(),
+        "import failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Verify imported files
+    let output = Command::new(bin_path)
+        .args([
+            "cat",
+            "--path",
+            &vault_path,
+            "--file",
+            "imported/sample.md",
+            "--password",
+            "compress_secret123",
+        ])
+        .output()
+        .expect("cat imported sample.md");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"# Markdown document\nData line");
+
+    let output = Command::new(bin_path)
+        .args([
+            "cat",
+            "--path",
+            &vault_path,
+            "--file",
+            "imported/photo.jpg",
+            "--password",
+            "compress_secret123",
+        ])
+        .output()
+        .expect("cat imported photo.jpg");
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"JPEG_FAKE_DATA_123456");
+
+    // 6. Verify vault integrity
+    let output = Command::new(bin_path)
+        .args([
+            "verify",
+            "--path",
+            &vault_path,
+            "--password",
+            "compress_secret123",
+        ])
+        .output()
+        .expect("verify vault");
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("HEALTHY"));
+
+    // Cleanup
+    let _ = Command::new(bin_path)
+        .args(["remove", "--path", &vault_path])
+        .output();
+    let _ = fs::remove_dir_all(&test_dir);
+}

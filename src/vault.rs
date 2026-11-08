@@ -78,11 +78,114 @@ pub fn derive_final_key(
 // [12 bytes nonce] [4 bytes path_len] [encrypted_path] [encrypted_content]
 // Let's write the code for this binary format! It is clean, efficient, and professional.
 
+pub const PAYLOAD_MAGIC: &[u8; 4] = b"KRYP";
+pub const PAYLOAD_VERSION_1: u8 = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompressionMode {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CompressionAlgorithm {
+    None = 0,
+    Zstd = 1,
+}
+
+impl CompressionAlgorithm {
+    pub fn from_u8(val: u8) -> Result<Self, String> {
+        match val {
+            0 => Ok(CompressionAlgorithm::None),
+            1 => Ok(CompressionAlgorithm::Zstd),
+            other => Err(format!("Unknown compression algorithm ID: {other}")),
+        }
+    }
+}
+
+pub fn is_already_compressed_extension(path: &str) -> bool {
+    let p = Path::new(path);
+    let ext = match p.extension().and_then(|e| e.to_str()) {
+        Some(e) => e.to_ascii_lowercase(),
+        None => return false,
+    };
+
+    let path_lower = path.to_ascii_lowercase();
+    if path_lower.ends_with(".tar.gz")
+        || path_lower.ends_with(".tar.bz2")
+        || path_lower.ends_with(".tar.xz")
+        || path_lower.ends_with(".tar.zst")
+    {
+        return true;
+    }
+
+    matches!(
+        ext.as_str(),
+        // Images
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "heic" | "heif" | "ico" | "tiff" | "tif"
+        // Archives / Compressed containers
+        | "zip" | "gz" | "tgz" | "bz2" | "tbz2" | "xz" | "txz" | "zst" | "7z" | "rar" | "apk" | "jar" | "war" | "deb" | "rpm" | "iso"
+        // Audio
+        | "mp3" | "flac" | "aac" | "ogg" | "m4a" | "opus" | "wma"
+        // Video
+        | "mp4" | "mkv" | "avi" | "mov" | "webm" | "flv" | "wmv" | "m4v"
+        // Packaged Documents
+        | "pdf" | "docx" | "xlsx" | "pptx" | "odt" | "ods" | "odp" | "epub"
+    )
+}
+
 pub fn encrypt_file_payload(
     master_key: &[u8; 32],
     relative_path: &str,
     content: &[u8],
 ) -> Result<Vec<u8>, String> {
+    encrypt_file_payload_with_compression(master_key, relative_path, content, CompressionMode::Auto)
+}
+
+pub fn encrypt_file_payload_with_compression(
+    master_key: &[u8; 32],
+    relative_path: &str,
+    content: &[u8],
+    compression_mode: CompressionMode,
+) -> Result<Vec<u8>, String> {
+    let (algorithm, data_to_encrypt) = match compression_mode {
+        CompressionMode::Never => (
+            CompressionAlgorithm::None,
+            std::borrow::Cow::Borrowed(content),
+        ),
+        CompressionMode::Always => {
+            let compressed = zstd::encode_all(content, 3)
+                .map_err(|e| format!("Zstd compression failed: {e}"))?;
+            (
+                CompressionAlgorithm::Zstd,
+                std::borrow::Cow::Owned(compressed),
+            )
+        }
+        CompressionMode::Auto => {
+            if is_already_compressed_extension(relative_path) {
+                (
+                    CompressionAlgorithm::None,
+                    std::borrow::Cow::Borrowed(content),
+                )
+            } else {
+                match zstd::encode_all(content, 3) {
+                    Ok(compressed) if compressed.len() < content.len() => (
+                        CompressionAlgorithm::Zstd,
+                        std::borrow::Cow::Owned(compressed),
+                    ),
+                    _ => (
+                        CompressionAlgorithm::None,
+                        std::borrow::Cow::Borrowed(content),
+                    ),
+                }
+            }
+        }
+    };
+
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(master_key));
 
     // Generate a random 12-byte nonce
@@ -93,14 +196,27 @@ pub fn encrypt_file_payload(
     // Encrypt the path
     let encrypted_path = cipher
         .encrypt(nonce, relative_path.as_bytes())
-        .map_err(|e| format!("Path encryption failed: {}", e))?;
+        .map_err(|e| format!("Path encryption failed: {e}"))?;
 
-    // Encrypt the content
+    // Encrypt the content (compressed or raw)
     let encrypted_content = cipher
-        .encrypt(nonce, content)
-        .map_err(|e| format!("Content encryption failed: {}", e))?;
+        .encrypt(nonce, &*data_to_encrypt)
+        .map_err(|e| format!("Content encryption failed: {e}"))?;
 
-    let mut payload = Vec::new();
+    // Layout:
+    // [4 bytes MAGIC "KRYP"]
+    // [1 byte VERSION = 1]
+    // [1 byte COMPRESSION = algorithm as u8]
+    // [2 bytes RESERVED = 0, 0]
+    // [12 bytes NONCE]
+    // [4 bytes PATH_LEN (BE)]
+    // [encrypted_path]
+    // [encrypted_content]
+    let mut payload = Vec::with_capacity(24 + encrypted_path.len() + encrypted_content.len());
+    payload.extend_from_slice(PAYLOAD_MAGIC);
+    payload.push(PAYLOAD_VERSION_1);
+    payload.push(algorithm as u8);
+    payload.extend_from_slice(&[0u8, 0u8]); // reserved
     payload.extend_from_slice(&nonce_bytes);
     payload.extend_from_slice(&(encrypted_path.len() as u32).to_be_bytes());
     payload.extend_from_slice(&encrypted_path);
@@ -119,29 +235,68 @@ pub fn decrypt_file_payload(
 
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(master_key));
 
-    let nonce_bytes = &payload[0..12];
-    let nonce = Nonce::from_slice(nonce_bytes);
+    if payload.len() >= 24 && &payload[0..4] == PAYLOAD_MAGIC {
+        let version = payload[4];
+        if version != PAYLOAD_VERSION_1 {
+            return Err(format!("Unsupported payload version: {version}"));
+        }
+        let algorithm = CompressionAlgorithm::from_u8(payload[5])?;
+        // payload[6..8] is reserved
+        let nonce_bytes = &payload[8..20];
+        let nonce = Nonce::from_slice(nonce_bytes);
 
-    let path_len =
-        u32::from_be_bytes([payload[12], payload[13], payload[14], payload[15]]) as usize;
-    if payload.len() < 16 + path_len {
-        return Err("Invalid payload length".to_string());
+        let path_len =
+            u32::from_be_bytes([payload[20], payload[21], payload[22], payload[23]]) as usize;
+        if payload.len() < 24 + path_len {
+            return Err("Invalid payload length".to_string());
+        }
+
+        let encrypted_path = &payload[24..24 + path_len];
+        let encrypted_content = &payload[24 + path_len..];
+
+        let decrypted_path_bytes = cipher
+            .decrypt(nonce, encrypted_path)
+            .map_err(|e| format!("Path decryption failed: {e}"))?;
+        let relative_path = String::from_utf8(decrypted_path_bytes)
+            .map_err(|e| format!("Invalid UTF-8 in decrypted path: {e}"))?;
+
+        let decrypted_content = cipher
+            .decrypt(nonce, encrypted_content)
+            .map_err(|e| format!("Content decryption failed: {e}"))?;
+
+        let final_content = match algorithm {
+            CompressionAlgorithm::None => decrypted_content,
+            CompressionAlgorithm::Zstd => zstd::decode_all(&decrypted_content[..])
+                .map_err(|e| format!("Zstd decompression failed: {e}"))?,
+        };
+
+        Ok((relative_path, final_content))
+    } else {
+        // Legacy v0 fallback (unversioned, uncompressed)
+        let nonce_bytes = &payload[0..12];
+        let nonce = Nonce::from_slice(nonce_bytes);
+
+        let path_len =
+            u32::from_be_bytes([payload[12], payload[13], payload[14], payload[15]]) as usize;
+        if payload.len() < 16 + path_len {
+            return Err("Invalid payload length".to_string());
+        }
+
+        let encrypted_path = &payload[16..16 + path_len];
+        let encrypted_content = &payload[16 + path_len..];
+
+        let decrypted_path_bytes = cipher
+            .decrypt(nonce, encrypted_path)
+            .map_err(|e| format!("Path decryption failed: {e}"))?;
+        let relative_path = String::from_utf8(decrypted_path_bytes)
+            .map_err(|e| format!("Invalid UTF-8 in decrypted path: {e}"))?;
+
+        let decrypted_content = cipher
+            .decrypt(nonce, encrypted_content)
+            .map_err(|e| format!("Content decryption failed: {e}"))?;
+
+        Ok((relative_path, decrypted_content))
     }
-
-    let encrypted_path = &payload[16..16 + path_len];
-    let encrypted_content = &payload[16 + path_len..];
-
-    let decrypted_path_bytes = cipher
-        .decrypt(nonce, encrypted_path)
-        .map_err(|e| format!("Path decryption failed: {}", e))?;
-    let relative_path = String::from_utf8(decrypted_path_bytes)
-        .map_err(|e| format!("Invalid UTF-8 in decrypted path: {}", e))?;
-
-    let decrypted_content = cipher
-        .decrypt(nonce, encrypted_content)
-        .map_err(|e| format!("Content decryption failed: {}", e))?;
-
-    Ok((relative_path, decrypted_content))
 }
 
 // Generate the physical filename (obfuscated) deterministic from the relative path
@@ -513,10 +668,31 @@ pub fn write_file(
     relative_path: &str,
     content: &[u8],
 ) -> Result<(), String> {
+    write_file_with_compression(
+        vault_dir,
+        master_key,
+        relative_path,
+        content,
+        CompressionMode::Auto,
+    )
+}
+
+pub fn write_file_with_compression(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
+    content: &[u8],
+    compression_mode: CompressionMode,
+) -> Result<(), String> {
     let phys_name = get_physical_filename(master_key, relative_path);
     let phys_path = vault_dir.join("d").join(&phys_name);
 
-    let payload = encrypt_file_payload(master_key, relative_path, content)?;
+    let payload = encrypt_file_payload_with_compression(
+        master_key,
+        relative_path,
+        content,
+        compression_mode,
+    )?;
 
     let count = WRITE_TMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     let tmp_path = vault_dir
@@ -533,12 +709,34 @@ pub fn write_file_from_reader<R: Read>(
     vault_dir: &Path,
     master_key: &[u8; 32],
     relative_path: &str,
+    reader: R,
+) -> Result<u64, String> {
+    write_file_from_reader_with_compression(
+        vault_dir,
+        master_key,
+        relative_path,
+        reader,
+        CompressionMode::Auto,
+    )
+}
+
+pub fn write_file_from_reader_with_compression<R: Read>(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    relative_path: &str,
     mut reader: R,
+    compression_mode: CompressionMode,
 ) -> Result<u64, String> {
     let mut buffer = Vec::new();
     reader.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
     let len = buffer.len() as u64;
-    write_file(vault_dir, master_key, relative_path, &buffer)?;
+    write_file_with_compression(
+        vault_dir,
+        master_key,
+        relative_path,
+        &buffer,
+        compression_mode,
+    )?;
     Ok(len)
 }
 
@@ -1576,6 +1774,22 @@ pub fn import_dir(
     src_dir: &Path,
     dest_prefix: Option<&str>,
 ) -> Result<usize, String> {
+    import_dir_with_compression(
+        vault_dir,
+        master_key,
+        src_dir,
+        dest_prefix,
+        CompressionMode::Auto,
+    )
+}
+
+pub fn import_dir_with_compression(
+    vault_dir: &Path,
+    master_key: &[u8; 32],
+    src_dir: &Path,
+    dest_prefix: Option<&str>,
+    compression_mode: CompressionMode,
+) -> Result<usize, String> {
     if !src_dir.is_dir() {
         return Err(format!("'{}' is not a directory", src_dir.display()));
     }
@@ -1586,13 +1800,21 @@ pub fn import_dir(
         current_dir: &Path,
         base_dir: &Path,
         dest_prefix: Option<&str>,
+        compression_mode: CompressionMode,
     ) -> Result<usize, String> {
         let mut count = 0;
         for entry in fs::read_dir(current_dir).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             let path = entry.path();
             if path.is_dir() {
-                count += walk_and_import(vault_dir, master_key, &path, base_dir, dest_prefix)?;
+                count += walk_and_import(
+                    vault_dir,
+                    master_key,
+                    &path,
+                    base_dir,
+                    dest_prefix,
+                    compression_mode,
+                )?;
             } else if path.is_file() {
                 let rel = path
                     .strip_prefix(base_dir)
@@ -1606,14 +1828,27 @@ pub fn import_dir(
                     _ => rel,
                 };
                 let src_file = File::open(&path).map_err(|e| e.to_string())?;
-                write_file_from_reader(vault_dir, master_key, &target_path, src_file)?;
+                write_file_from_reader_with_compression(
+                    vault_dir,
+                    master_key,
+                    &target_path,
+                    src_file,
+                    compression_mode,
+                )?;
                 count += 1;
             }
         }
         Ok(count)
     }
 
-    walk_and_import(vault_dir, master_key, src_dir, src_dir, dest_prefix)
+    walk_and_import(
+        vault_dir,
+        master_key,
+        src_dir,
+        src_dir,
+        dest_prefix,
+        compression_mode,
+    )
 }
 
 #[cfg(feature = "web")]
@@ -2156,10 +2391,133 @@ mod tests {
         let content = b"Super secret text content";
 
         let encrypted = encrypt_file_payload(&master_key, path, content).unwrap();
-        assert!(encrypted.len() > 16);
+        assert!(encrypted.len() > 24);
+        assert_eq!(&encrypted[0..4], PAYLOAD_MAGIC);
+        assert_eq!(encrypted[4], PAYLOAD_VERSION_1);
 
         let (decrypted_path, decrypted_content) =
             decrypt_file_payload(&master_key, &encrypted).unwrap();
+        assert_eq!(decrypted_path, path);
+        assert_eq!(decrypted_content, content);
+    }
+
+    #[test]
+    fn test_is_already_compressed_extension() {
+        // Images & archives & media
+        assert!(is_already_compressed_extension("image.jpg"));
+        assert!(is_already_compressed_extension("photo.JPEG"));
+        assert!(is_already_compressed_extension("icon.png"));
+        assert!(is_already_compressed_extension("archive.zip"));
+        assert!(is_already_compressed_extension("bundle.tar.gz"));
+        assert!(is_already_compressed_extension("backup.tar.xz"));
+        assert!(is_already_compressed_extension("video.mp4"));
+        assert!(is_already_compressed_extension("audio.mp3"));
+        assert!(is_already_compressed_extension("document.pdf"));
+        assert!(is_already_compressed_extension("sheet.xlsx"));
+
+        // Text & code & data formats that should compress
+        assert!(!is_already_compressed_extension("document.txt"));
+        assert!(!is_already_compressed_extension("code.rs"));
+        assert!(!is_already_compressed_extension("data.json"));
+        assert!(!is_already_compressed_extension("table.csv"));
+        assert!(!is_already_compressed_extension("notes.md"));
+        assert!(!is_already_compressed_extension("database.sql"));
+        assert!(!is_already_compressed_extension("no_extension"));
+    }
+
+    #[test]
+    fn test_compression_modes_and_heuristics() {
+        let master_key = [42u8; 32];
+        // 5000 bytes of repetitive text that compresses extremely well
+        let text_content = b"The quick brown fox jumps over the lazy dog. 1234567890. ".repeat(100);
+
+        // 1. Auto mode on text -> should compress with Zstd
+        let payload_auto_txt = encrypt_file_payload_with_compression(
+            &master_key,
+            "docs/notes.txt",
+            &text_content,
+            CompressionMode::Auto,
+        )
+        .unwrap();
+        assert_eq!(&payload_auto_txt[0..4], PAYLOAD_MAGIC);
+        assert_eq!(payload_auto_txt[4], PAYLOAD_VERSION_1);
+        assert_eq!(payload_auto_txt[5], CompressionAlgorithm::Zstd as u8);
+        assert!(payload_auto_txt.len() < text_content.len() / 5);
+
+        let (p1, c1) = decrypt_file_payload(&master_key, &payload_auto_txt).unwrap();
+        assert_eq!(p1, "docs/notes.txt");
+        assert_eq!(c1, text_content);
+
+        // 2. Auto mode on already-compressed extension -> should skip compression
+        let payload_auto_jpg = encrypt_file_payload_with_compression(
+            &master_key,
+            "photos/holiday.jpg",
+            &text_content,
+            CompressionMode::Auto,
+        )
+        .unwrap();
+        assert_eq!(&payload_auto_jpg[0..4], PAYLOAD_MAGIC);
+        assert_eq!(payload_auto_jpg[4], PAYLOAD_VERSION_1);
+        assert_eq!(payload_auto_jpg[5], CompressionAlgorithm::None as u8);
+
+        let (p2, c2) = decrypt_file_payload(&master_key, &payload_auto_jpg).unwrap();
+        assert_eq!(p2, "photos/holiday.jpg");
+        assert_eq!(c2, text_content);
+
+        // 3. Always mode on .jpg -> forces Zstd compression
+        let payload_always = encrypt_file_payload_with_compression(
+            &master_key,
+            "photos/holiday.jpg",
+            &text_content,
+            CompressionMode::Always,
+        )
+        .unwrap();
+        assert_eq!(payload_always[5], CompressionAlgorithm::Zstd as u8);
+        let (p3, c3) = decrypt_file_payload(&master_key, &payload_always).unwrap();
+        assert_eq!(p3, "photos/holiday.jpg");
+        assert_eq!(c3, text_content);
+
+        // 4. Never mode on .txt -> forces None
+        let payload_never = encrypt_file_payload_with_compression(
+            &master_key,
+            "docs/notes.txt",
+            &text_content,
+            CompressionMode::Never,
+        )
+        .unwrap();
+        assert_eq!(payload_never[5], CompressionAlgorithm::None as u8);
+        let (p4, c4) = decrypt_file_payload(&master_key, &payload_never).unwrap();
+        assert_eq!(p4, "docs/notes.txt");
+        assert_eq!(c4, text_content);
+    }
+
+    #[test]
+    fn test_legacy_v0_payload_fallback() {
+        let master_key = [99u8; 32];
+        let path = "legacy/file.txt";
+        let content = b"Legacy uncompressed content from v0 format";
+
+        // Manually construct unversioned v0 payload:
+        // [12 bytes nonce] [4 bytes path_len] [encrypted_path] [encrypted_content]
+        let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&master_key));
+        let nonce_bytes = [1u8; 12];
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let enc_path = cipher.encrypt(nonce, path.as_bytes()).unwrap();
+        let enc_content = cipher.encrypt(nonce, content.as_slice()).unwrap();
+
+        let mut v0_payload = Vec::new();
+        v0_payload.extend_from_slice(&nonce_bytes);
+        v0_payload.extend_from_slice(&(enc_path.len() as u32).to_be_bytes());
+        v0_payload.extend_from_slice(&enc_path);
+        v0_payload.extend_from_slice(&enc_content);
+
+        // Ensure it does NOT start with KRYP
+        assert_ne!(&v0_payload[0..4], PAYLOAD_MAGIC);
+
+        // Decrypt must succeed transparently
+        let (decrypted_path, decrypted_content) =
+            decrypt_file_payload(&master_key, &v0_payload).unwrap();
         assert_eq!(decrypted_path, path);
         assert_eq!(decrypted_content, content);
     }

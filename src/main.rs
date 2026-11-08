@@ -591,6 +591,7 @@ fn main() {
                 target,
                 password,
                 keyfile,
+                compression,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -618,11 +619,12 @@ fn main() {
                 let path_buf = Path::new(&path);
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
-                        match vault::write_file_from_reader(
+                        match vault::write_file_from_reader_with_compression(
                             path_buf,
                             &master_key,
                             &target_path,
                             src_file,
+                            compression,
                         ) {
                             Ok(bytes_written) => {
                                 println!(
@@ -1018,6 +1020,7 @@ fn main() {
                 dest,
                 password,
                 keyfile,
+                compression,
             } => {
                 let pwd = match password {
                     Some(p) => p,
@@ -1033,7 +1036,13 @@ fn main() {
                 let src_buf = Path::new(&source);
                 match vault::unlock_vault(path_buf, &pwd, keyfile.as_deref().map(Path::new)) {
                     Ok(master_key) => {
-                        match vault::import_dir(path_buf, &master_key, src_buf, dest.as_deref()) {
+                        match vault::import_dir_with_compression(
+                            path_buf,
+                            &master_key,
+                            src_buf,
+                            dest.as_deref(),
+                            compression,
+                        ) {
                             Ok(count) => {
                                 println!(
                                     "Successfully imported {count} file(s) from '{source}' into vault."

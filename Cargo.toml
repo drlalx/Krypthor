@@ -23,6 +23,7 @@ hex = "0.4"
 rand = "0.8"
 sha2 = "0.10"
 bytes = "1"
+zstd = "0.14"
 rfd = "0.14"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
