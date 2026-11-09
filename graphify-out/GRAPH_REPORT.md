@@ -1,7 +1,7 @@
-# Graph Report - krypthor  (2026-11-08)
+# Graph Report - krypthor  (2026-11-09)
 
 ## Corpus Check
-- 23 files · ~54,267 words
+- 23 files · ~54,463 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 4 file(s) not represented in the graph (top: .toml 2, (none) 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `97aaccd3`
+- Built from commit: `3c49b1df`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 

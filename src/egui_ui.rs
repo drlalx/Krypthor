@@ -629,189 +629,205 @@ impl KrypthorApp {
         ui.add_space(10.0);
         ui.separator();
         ui.add_space(4.0);
+        let vaults_count = self.saved_vaults.len();
         ui.label(
-            RichText::new("REGISTERED VAULTS")
-                .size(11.0)
-                .color(Color32::from_rgb(120, 130, 155))
-                .strong(),
+            RichText::new(if vaults_count > 0 {
+                format!("REGISTERED VAULTS ({vaults_count})")
+            } else {
+                "REGISTERED VAULTS".to_string()
+            })
+            .size(11.0)
+            .color(Color32::from_rgb(120, 130, 155))
+            .strong(),
         );
         ui.add_space(4.0);
 
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            if self.saved_vaults.is_empty() {
-                ui.add_space(10.0);
-                ui.label(
-                    RichText::new("No registered vaults.")
-                        .italics()
-                        .color(Color32::GRAY),
-                );
-            } else {
-                let mut to_delete = None;
-                let mut to_select = None;
-                let count = self.saved_vaults.len();
-                for i in 0..count {
-                    let (name, path_str) = match self.saved_vaults.get(i) {
-                        Some(v) => (v.name.clone(), v.path.clone()),
-                        None => continue,
-                    };
-                    let is_selected = self.selected_vault_idx == Some(i);
-                    let path_buf = PathBuf::from(&path_str);
-                    let is_unlocked = self.unlocked_vaults.contains_key(&path_buf);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                if self.saved_vaults.is_empty() {
+                    ui.add_space(10.0);
+                    ui.label(
+                        RichText::new("No registered vaults.")
+                            .italics()
+                            .color(Color32::GRAY),
+                    );
+                } else {
+                    let mut to_delete = None;
+                    let mut to_select = None;
+                    let count = self.saved_vaults.len();
+                    for i in 0..count {
+                        let (name, path_str) = match self.saved_vaults.get(i) {
+                            Some(v) => (v.name.clone(), v.path.clone()),
+                            None => continue,
+                        };
+                        let is_selected = self.selected_vault_idx == Some(i);
+                        let path_buf = PathBuf::from(&path_str);
+                        let is_unlocked = self.unlocked_vaults.contains_key(&path_buf);
 
-                    let item_frame = egui::Frame::new()
-                        .fill(if is_selected {
-                            Color32::from_rgb(45, 55, 75)
-                        } else {
-                            Color32::TRANSPARENT
-                        })
-                        .corner_radius(6.0)
-                        .inner_margin(8.0);
+                        let item_frame = egui::Frame::new()
+                            .fill(if is_selected {
+                                Color32::from_rgb(45, 55, 75)
+                            } else {
+                                Color32::TRANSPARENT
+                            })
+                            .corner_radius(6.0)
+                            .inner_margin(8.0);
 
-                    item_frame.show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            let status_icon = if is_unlocked { "🔓" } else { "🔒" };
-                            ui.label(RichText::new(status_icon).size(15.0));
+                        let frame_resp = item_frame.show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let status_icon = if is_unlocked { "🔓" } else { "🔒" };
+                                ui.label(RichText::new(status_icon).size(15.0));
 
-                            ui.vertical(|ui| {
-                                ui.label(RichText::new(&name).strong());
-                                ui.label(
-                                    RichText::new(&path_str)
-                                        .size(10.0)
-                                        .color(Color32::from_rgb(140, 150, 175)),
-                                );
-                            });
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new(&name).strong());
+                                    ui.label(
+                                        RichText::new(&path_str)
+                                            .size(10.0)
+                                            .color(Color32::from_rgb(140, 150, 175)),
+                                    );
+                                });
 
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                if is_selected {
-                                    if ui
-                                        .small_button("✕")
-                                        .on_hover_text("Remove from list")
-                                        .clicked()
-                                    {
-                                        to_delete = Some(i);
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if is_selected {
+                                        if ui
+                                            .small_button("✕")
+                                            .on_hover_text("Remove from list")
+                                            .clicked()
+                                        {
+                                            to_delete = Some(i);
+                                        }
+                                        if ui
+                                            .small_button("✏")
+                                            .on_hover_text("Rename vault")
+                                            .clicked()
+                                        {
+                                            self.rename_vault_modal_open = true;
+                                            self.rename_vault_new_name = name.clone();
+                                        }
                                     }
-                                    if ui.small_button("✏").on_hover_text("Rename vault").clicked()
-                                    {
-                                        self.rename_vault_modal_open = true;
-                                        self.rename_vault_new_name = name.clone();
-                                    }
-                                }
+                                });
                             });
                         });
-                    });
 
-                    let rect = ui.min_rect();
-                    if ui.interact(rect, ui.id().with(i), Sense::click()).clicked() {
-                        to_select = Some(i);
+                        if ui
+                            .interact(frame_resp.response.rect, ui.id().with(i), Sense::click())
+                            .clicked()
+                        {
+                            to_select = Some(i);
+                        }
+                        ui.add_space(2.0);
                     }
-                    ui.add_space(2.0);
-                }
 
-                if let Some(sel) = to_select {
-                    self.select_vault(sel);
-                }
-
-                if let Some(del_idx) = to_delete {
-                    let path = PathBuf::from(&self.saved_vaults[del_idx].path);
-                    #[cfg(all(unix, feature = "fuse"))]
-                    {
-                        self.active_mounts.remove(&path);
+                    if let Some(sel) = to_select {
+                        self.select_vault(sel);
                     }
-                    self.unlocked_vaults.remove(&path);
-                    self.saved_vaults.remove(del_idx);
-                    save_saved_vaults(&self.saved_vaults);
-                    if self.saved_vaults.is_empty() {
-                        self.selected_vault_idx = None;
-                        self.view_mode = ViewMode::Welcome;
-                    } else {
-                        self.select_vault(0);
-                    }
-                }
 
-                if self.rename_vault_modal_open {
-                    ui.add_space(8.0);
-                    Card::new().heading("Rename Vault").show(ui, |ui| {
-                        ui.label("New vault name:");
-                        ui.text_edit_singleline(&mut self.rename_vault_new_name);
-                        ui.horizontal(|ui| {
-                            if ui.button("💾 Save").clicked() {
-                                let trimmed = self.rename_vault_new_name.trim().to_string();
-                                if !trimmed.is_empty() {
-                                    if let Some(idx) = self.selected_vault_idx
-                                        && let Some(v) = self.saved_vaults.get_mut(idx)
-                                    {
-                                        v.name = trimmed;
-                                        save_saved_vaults(&self.saved_vaults);
-                                        self.status_message = Some((
-                                            "Vault renamed successfully.".to_string(),
-                                            false,
-                                        ));
+                    if let Some(del_idx) = to_delete {
+                        let path = PathBuf::from(&self.saved_vaults[del_idx].path);
+                        #[cfg(all(unix, feature = "fuse"))]
+                        {
+                            self.active_mounts.remove(&path);
+                        }
+                        self.unlocked_vaults.remove(&path);
+                        self.saved_vaults.remove(del_idx);
+                        save_saved_vaults(&self.saved_vaults);
+                        if self.saved_vaults.is_empty() {
+                            self.selected_vault_idx = None;
+                            self.view_mode = ViewMode::Welcome;
+                        } else {
+                            self.select_vault(0);
+                        }
+                    }
+
+                    if self.rename_vault_modal_open {
+                        ui.add_space(8.0);
+                        Card::new().heading("Rename Vault").show(ui, |ui| {
+                            ui.label("New vault name:");
+                            ui.text_edit_singleline(&mut self.rename_vault_new_name);
+                            ui.horizontal(|ui| {
+                                if ui.button("💾 Save").clicked() {
+                                    let trimmed = self.rename_vault_new_name.trim().to_string();
+                                    if !trimmed.is_empty() {
+                                        if let Some(idx) = self.selected_vault_idx
+                                            && let Some(v) = self.saved_vaults.get_mut(idx)
+                                        {
+                                            v.name = trimmed;
+                                            save_saved_vaults(&self.saved_vaults);
+                                            self.status_message = Some((
+                                                "Vault renamed successfully.".to_string(),
+                                                false,
+                                            ));
+                                        }
+                                        self.rename_vault_modal_open = false;
                                     }
+                                }
+                                if ui.button("Cancel").clicked() {
                                     self.rename_vault_modal_open = false;
                                 }
-                            }
-                            if ui.button("Cancel").clicked() {
-                                self.rename_vault_modal_open = false;
+                            });
+                        });
+                    }
+                }
+
+                #[cfg(feature = "web")]
+                {
+                    ui.separator();
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("🌐").size(13.0));
+                        let status_text = if self.web_server_running {
+                            "Web Server (Aktiv)"
+                        } else {
+                            "Web Server (Aus)"
+                        };
+                        ui.label(RichText::new(status_text).size(11.0).strong());
+
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if self.web_server_running {
+                                if ui.button("⏹ Stop").clicked() {
+                                    if let Some(tx) = self.web_server_shutdown.take() {
+                                        let _ = tx.send(());
+                                    }
+                                    self.web_server_running = false;
+                                    self.status_message =
+                                        Some(("Web server stopped.".into(), false));
+                                }
+                                ui.hyperlink_to("Öffnen ↗", "http://127.0.0.1:8080");
+                            } else if ui.button("▶ Starten").clicked() {
+                                let (tx, rx) = tokio::sync::oneshot::channel();
+                                self.web_server_shutdown = Some(tx);
+                                self.web_server_running = true;
+                                std::thread::spawn(move || {
+                                    if let Ok(rt) = tokio::runtime::Runtime::new() {
+                                        let _ = rt.block_on(
+                                            crate::web_server::run_server_with_shutdown(
+                                                "127.0.0.1",
+                                                8080,
+                                                rx,
+                                            ),
+                                        );
+                                    }
+                                });
+                                self.status_message = Some((
+                                    "Web server started on http://127.0.0.1:8080".into(),
+                                    false,
+                                ));
                             }
                         });
                     });
                 }
-            }
 
-            #[cfg(feature = "web")]
-            {
                 ui.separator();
                 ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("🌐").size(13.0));
-                    let status_text = if self.web_server_running {
-                        "Web Server (Aktiv)"
-                    } else {
-                        "Web Server (Aus)"
-                    };
-                    ui.label(RichText::new(status_text).size(11.0).strong());
-
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if self.web_server_running {
-                            if ui.button("⏹ Stop").clicked() {
-                                if let Some(tx) = self.web_server_shutdown.take() {
-                                    let _ = tx.send(());
-                                }
-                                self.web_server_running = false;
-                                self.status_message = Some(("Web server stopped.".into(), false));
-                            }
-                            ui.hyperlink_to("Öffnen ↗", "http://127.0.0.1:8080");
-                        } else if ui.button("▶ Starten").clicked() {
-                            let (tx, rx) = tokio::sync::oneshot::channel();
-                            self.web_server_shutdown = Some(tx);
-                            self.web_server_running = true;
-                            std::thread::spawn(move || {
-                                if let Ok(rt) = tokio::runtime::Runtime::new() {
-                                    let _ =
-                                        rt.block_on(crate::web_server::run_server_with_shutdown(
-                                            "127.0.0.1",
-                                            8080,
-                                            rx,
-                                        ));
-                                }
-                            });
-                            self.status_message =
-                                Some(("Web server started on http://127.0.0.1:8080".into(), false));
-                        }
-                    });
-                });
-            }
-
-            ui.separator();
-            ui.add_space(4.0);
-            if ui.button("🩺 System Doctor & Benchmark").clicked() {
-                self.doctor_modal_open = true;
-                let vault_paths: Vec<String> =
-                    self.saved_vaults.iter().map(|v| v.path.clone()).collect();
-                self.doctor_report = Some(vault::run_doctor(&vault_paths));
-                self.benchmark_result = Some(vault::run_benchmark());
-            }
-        });
+                if ui.button("🩺 System Doctor & Benchmark").clicked() {
+                    self.doctor_modal_open = true;
+                    let vault_paths: Vec<String> =
+                        self.saved_vaults.iter().map(|v| v.path.clone()).collect();
+                    self.doctor_report = Some(vault::run_doctor(&vault_paths));
+                    self.benchmark_result = Some(vault::run_benchmark());
+                }
+            });
     }
 
     fn render_welcome_view(&mut self, ui: &mut egui::Ui) {
@@ -1226,9 +1242,19 @@ impl KrypthorApp {
         ui.add_space(12.0);
 
         // Tab Selector: Files vs Stats vs Trash
+        let visible_files_count = self
+            .vault_files
+            .iter()
+            .filter(|f| !f.path.ends_with("/.keep"))
+            .count();
+        let files_tab_title = if visible_files_count > 0 {
+            format!("📁 Files Explorer ({visible_files_count})")
+        } else {
+            "📁 Files Explorer".to_string()
+        };
         ui.horizontal(|ui| {
             if ui
-                .selectable_label(self.unlocked_tab == UnlockedTab::Files, "📁 Files Explorer")
+                .selectable_label(self.unlocked_tab == UnlockedTab::Files, files_tab_title)
                 .clicked()
             {
                 self.unlocked_tab = UnlockedTab::Files;
@@ -1280,7 +1306,7 @@ impl KrypthorApp {
         };
 
         // Action Toolbar
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             if ui.button("🔄 Refresh").clicked() {
                 self.refresh_vault_files();
             }
@@ -1880,145 +1906,210 @@ impl KrypthorApp {
             ui.add_space(10.0);
         }
 
-        // Files List
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            let query = self.file_search_query.trim().to_lowercase();
-            let files_to_display: Vec<&vault::FileItem> = self
+        // Files List & Container
+        let query = self.file_search_query.trim().to_lowercase();
+        let files_to_display: Vec<&vault::FileItem> = self
+            .vault_files
+            .iter()
+            .filter(|f| !f.path.ends_with("/.keep"))
+            .filter(|f| query.is_empty() || f.path.to_lowercase().contains(&query))
+            .collect();
+
+        let visible_count = files_to_display.len();
+        let total_size_bytes: u64 = files_to_display.iter().map(|f| f.size).sum();
+        let card_heading = if query.is_empty() {
+            if visible_count == 0 {
+                "📁 Files (0)".to_string()
+            } else {
+                format!(
+                    "📁 Files ({visible_count}) • {}",
+                    format_bytes_gui(total_size_bytes)
+                )
+            }
+        } else {
+            let total_all = self
                 .vault_files
                 .iter()
                 .filter(|f| !f.path.ends_with("/.keep"))
-                .filter(|f| query.is_empty() || f.path.to_lowercase().contains(&query))
-                .collect();
+                .count();
+            format!(
+                "📁 Filtered Files ({visible_count}/{total_all}) • {}",
+                format_bytes_gui(total_size_bytes)
+            )
+        };
 
+        let mut file_to_export = None;
+        let mut file_to_delete = None;
+        let mut file_to_rename = None;
+        let mut file_to_copy = None;
+        let mut file_to_preview = None;
+
+        Card::new().heading(card_heading).show(ui, |ui| {
             if self.vault_files.is_empty() {
-                ui.add_space(20.0);
-                ui.label(RichText::new("Vault is empty. Click 'Import File' or 'New Text File' above to add documents.").color(Color32::GRAY).italics());
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new("Vault is empty. Click 'Import File' or 'New Text File' above to add documents.")
+                        .color(Color32::GRAY)
+                        .italics(),
+                );
+                ui.add_space(8.0);
             } else if files_to_display.is_empty() && !query.is_empty() {
-                ui.add_space(20.0);
-                ui.label(RichText::new(format!("No files matching '{query}'.")).color(Color32::GRAY).italics());
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new(format!("No files matching '{query}'.")).color(Color32::GRAY).italics(),
+                );
+                ui.add_space(8.0);
             } else {
-                let mut file_to_export = None;
-                let mut file_to_delete = None;
-                let mut file_to_rename = None;
-                let mut file_to_copy = None;
-                let mut file_to_preview = None;
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, true])
+                    .max_height(ui.available_height().max(180.0))
+                    .show(ui, |ui| {
+                        let total_items = files_to_display.len();
+                        for (idx, file) in files_to_display.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                let icon = file_icon(&file.path);
+                                ui.label(RichText::new(icon).size(15.0));
 
-                for file in files_to_display {
-                    ui.horizontal(|ui| {
-                        let icon = file_icon(&file.path);
-                        ui.label(RichText::new(icon).size(16.0));
-                        ui.label(RichText::new(&file.path).strong());
-                        let size_and_date = if let Some(m) = file.modified {
-                            format!(
-                                "({} • {})",
-                                format_bytes_gui(file.size),
-                                vault::format_timestamp(m)
-                            )
-                        } else {
-                            format!("({})", format_bytes_gui(file.size))
-                        };
-                        ui.label(
-                            RichText::new(size_and_date)
-                                .color(Color32::from_rgb(140, 150, 170))
-                                .size(12.0),
-                        );
+                                let name_label = egui::Label::new(RichText::new(&file.path).strong()).truncate();
+                                ui.add(name_label);
 
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            if ui.button("🗑 Delete").clicked() {
-                                file_to_delete = Some(file.path.clone());
-                            }
-                            if ui.button("✏ Rename").clicked() {
-                                file_to_rename = Some(file.path.clone());
-                            }
-                            if ui.button("📋 Copy").clicked() {
-                                file_to_copy = Some(file.path.clone());
-                            }
-                            if ui.button("💾 Export").clicked() {
-                                file_to_export = Some(file.path.clone());
-                            }
-                            if ui.button("👁 View").clicked() {
-                                file_to_preview = Some(file.path.clone());
-                            }
-                        });
-                    });
-                    ui.separator();
-                }
-
-                if let Some(target) = file_to_preview {
-                    match vault::read_file(vault_path, &master_key, &target) {
-                        Ok(data) => {
-                            let text = String::from_utf8(data).unwrap_or_else(|_| {
-                                "[Binary or non-UTF-8 file content]".to_string()
-                            });
-                            self.preview_modal_open = true;
-                            self.preview_file_name = target;
-                            self.preview_file_text = text;
-                        }
-                        Err(e) => {
-                            self.status_message =
-                                Some((format!("Error reading file for preview: {e}"), true));
-                        }
-                    }
-                }
-
-                if let Some(target) = file_to_rename {
-                    self.rename_modal_open = true;
-                    self.rename_target = target.clone();
-                    self.rename_new_name = target;
-                }
-
-                if let Some(target) = file_to_copy {
-                    self.copy_modal_open = true;
-                    self.copy_target = target.clone();
-                    let dot_idx = target.rfind('.');
-                    let default_dst = if let Some(idx) = dot_idx {
-                        format!("{}_copy{}", &target[..idx], &target[idx..])
-                    } else {
-                        format!("{target}_copy")
-                    };
-                    self.copy_new_name = default_dst;
-                }
-
-                if let Some(target) = file_to_export {
-                    match vault::read_file(vault_path, &master_key, &target) {
-                        Ok(data) => {
-                            let size_kb = data.len() as f32 / 1024.0;
-                            let filename = Path::new(&target)
-                                .file_name()
-                                .map(|n| n.to_string_lossy().to_string())
-                                .unwrap_or_else(|| "export.dat".to_string());
-                            if let Some(dest) = rfd::FileDialog::new().set_file_name(&filename).save_file() {
-                                if let Err(e) = std::fs::write(&dest, data) {
-                                    self.status_message = Some((format!("Export failed: {e}"), true));
+                                let size_and_date = if let Some(m) = file.modified {
+                                    format!(
+                                        "({} • {})",
+                                        format_bytes_gui(file.size),
+                                        vault::format_timestamp(m)
+                                    )
                                 } else {
-                                    self.active_read_speed = size_kb.max(50.0);
-                                    self.status_message = Some((format!("Exported '{target}' to {}", dest.display()), false));
-                                }
+                                    format!("({})", format_bytes_gui(file.size))
+                                };
+                                ui.label(
+                                    RichText::new(size_and_date)
+                                        .color(Color32::from_rgb(140, 150, 170))
+                                        .size(11.0),
+                                );
+
+                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                    if ui
+                                        .small_button("🗑")
+                                        .on_hover_text("Move to trash")
+                                        .clicked()
+                                    {
+                                        file_to_delete = Some(file.path.clone());
+                                    }
+                                    if ui
+                                        .small_button("✏")
+                                        .on_hover_text("Rename file")
+                                        .clicked()
+                                    {
+                                        file_to_rename = Some(file.path.clone());
+                                    }
+                                    if ui
+                                        .small_button("📋")
+                                        .on_hover_text("Copy file")
+                                        .clicked()
+                                    {
+                                        file_to_copy = Some(file.path.clone());
+                                    }
+                                    if ui
+                                        .small_button("💾 Export")
+                                        .on_hover_text("Export decrypted file")
+                                        .clicked()
+                                    {
+                                        file_to_export = Some(file.path.clone());
+                                    }
+                                    if ui
+                                        .small_button("👁 View")
+                                        .on_hover_text("View / compare file")
+                                        .clicked()
+                                    {
+                                        file_to_preview = Some(file.path.clone());
+                                    }
+                                });
+                            });
+
+                            if idx + 1 < total_items {
+                                ui.separator();
                             }
                         }
-                        Err(e) => {
-                            self.status_message = Some((format!("Error decrypting file: {e}"), true));
-                        }
-                    }
-                }
-
-                if let Some(target) = file_to_delete {
-                    match vault::move_to_trash(vault_path, &master_key, &target) {
-                        Ok(_) => {
-                            self.refresh_vault_files();
-                            self.status_message = Some((
-                                format!("Moved '{target}' to trash. Use the Trash tab to restore or permanently purge."),
-                                false,
-                            ));
-                        }
-                        Err(e) => {
-                            self.status_message =
-                                Some((format!("Error moving file to trash: {e}"), true));
-                        }
-                    }
-                }
+                    });
             }
         });
+
+        if let Some(target) = file_to_preview {
+            match vault::read_file(vault_path, &master_key, &target) {
+                Ok(data) => {
+                    let text = String::from_utf8(data)
+                        .unwrap_or_else(|_| "[Binary or non-UTF-8 file content]".to_string());
+                    self.preview_modal_open = true;
+                    self.preview_file_name = target;
+                    self.preview_file_text = text;
+                }
+                Err(e) => {
+                    self.status_message =
+                        Some((format!("Error reading file for preview: {e}"), true));
+                }
+            }
+        }
+
+        if let Some(target) = file_to_rename {
+            self.rename_modal_open = true;
+            self.rename_target = target.clone();
+            self.rename_new_name = target;
+        }
+
+        if let Some(target) = file_to_copy {
+            self.copy_modal_open = true;
+            self.copy_target = target.clone();
+            let dot_idx = target.rfind('.');
+            let default_dst = if let Some(idx) = dot_idx {
+                format!("{}_copy{}", &target[..idx], &target[idx..])
+            } else {
+                format!("{target}_copy")
+            };
+            self.copy_new_name = default_dst;
+        }
+
+        if let Some(target) = file_to_export {
+            match vault::read_file(vault_path, &master_key, &target) {
+                Ok(data) => {
+                    let size_kb = data.len() as f32 / 1024.0;
+                    let filename = Path::new(&target)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "export.dat".to_string());
+                    if let Some(dest) = rfd::FileDialog::new().set_file_name(&filename).save_file()
+                    {
+                        if let Err(e) = std::fs::write(&dest, data) {
+                            self.status_message = Some((format!("Export failed: {e}"), true));
+                        } else {
+                            self.active_read_speed = size_kb.max(50.0);
+                            self.status_message =
+                                Some((format!("Exported '{target}' to {}", dest.display()), false));
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.status_message = Some((format!("Error decrypting file: {e}"), true));
+                }
+            }
+        }
+
+        if let Some(target) = file_to_delete {
+            match vault::move_to_trash(vault_path, &master_key, &target) {
+                Ok(_) => {
+                    self.refresh_vault_files();
+                    self.status_message = Some((
+                        format!(
+                            "Moved '{target}' to trash. Use the Trash tab to restore or permanently purge."
+                        ),
+                        false,
+                    ));
+                }
+                Err(e) => {
+                    self.status_message = Some((format!("Error moving file to trash: {e}"), true));
+                }
+            }
+        }
     }
 
     fn render_stats_tab(&mut self, ui: &mut egui::Ui, vault_path: &Path) {
@@ -2264,38 +2355,45 @@ impl KrypthorApp {
                     let mut item_to_restore = None;
                     let mut item_to_purge = None;
 
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for item in &self.trash_items {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new("📄").size(16.0));
-                                ui.label(RichText::new(&item.original_path).strong());
-                                let info = if item.deleted_at > 0 {
-                                    format!(
-                                        "({} • Deleted: {})",
-                                        format_bytes_gui(item.size_bytes),
-                                        vault::format_timestamp(item.deleted_at)
-                                    )
-                                } else {
-                                    format!("({})", format_bytes_gui(item.size_bytes))
-                                };
-                                ui.label(
-                                    RichText::new(info)
-                                        .color(Color32::from_rgb(140, 150, 170))
-                                        .size(12.0),
-                                );
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, true])
+                        .max_height(ui.available_height().max(180.0))
+                        .show(ui, |ui| {
+                            let total_trash = self.trash_items.len();
+                            for (idx, item) in self.trash_items.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("📄").size(15.0));
+                                    let name_label = egui::Label::new(RichText::new(&item.original_path).strong()).truncate();
+                                    ui.add(name_label);
+                                    let info = if item.deleted_at > 0 {
+                                        format!(
+                                            "({} • Deleted: {})",
+                                            format_bytes_gui(item.size_bytes),
+                                            vault::format_timestamp(item.deleted_at)
+                                        )
+                                    } else {
+                                        format!("({})", format_bytes_gui(item.size_bytes))
+                                    };
+                                    ui.label(
+                                        RichText::new(info)
+                                            .color(Color32::from_rgb(140, 150, 170))
+                                            .size(11.0),
+                                    );
 
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    if ui.button("❌ Purge").clicked() {
-                                        item_to_purge = Some(item.trash_path.clone());
-                                    }
-                                    if ui.button("♻️ Restore").clicked() {
-                                        item_to_restore = Some(item.trash_path.clone());
-                                    }
+                                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                        if ui.small_button("❌ Purge").on_hover_text("Permanently delete from vault").clicked() {
+                                            item_to_purge = Some(item.trash_path.clone());
+                                        }
+                                        if ui.small_button("♻️ Restore").on_hover_text("Restore to original vault location").clicked() {
+                                            item_to_restore = Some(item.trash_path.clone());
+                                        }
+                                    });
                                 });
-                            });
-                            ui.separator();
-                        }
-                    });
+                                if idx + 1 < total_trash {
+                                    ui.separator();
+                                }
+                            }
+                        });
 
                     if let Some(trash_path) = item_to_restore {
                         match vault::restore_trash_item(vault_path, &master_key, &trash_path) {

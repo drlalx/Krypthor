@@ -18,9 +18,9 @@
     "semantic_hash": ""
   },
   "src/egui_ui.rs": {
-    "mtime": 1793637172.8438954,
-    "seen": 1793641310.5139859,
-    "ast_hash": "5d89275b47e874c31f9c3e8d2ac3db1e",
+    "mtime": 1794224205.8328364,
+    "seen": 1794226841.6878424,
+    "ast_hash": "5e65958ebbf6ddbd72c066cb68e58a4b",
     "semantic_hash": ""
   },
   "src/fs_fuse.rs": {
