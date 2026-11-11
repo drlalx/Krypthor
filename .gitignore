@@ -2,4 +2,5 @@
 /vaults.json
 .context/
 .sigmap-cache.json
+graphify-out/
 
