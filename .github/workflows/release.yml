@@ -1,0 +1,133 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            bin: krypthor
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+            bin: krypthor
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+            bin: krypthor
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+            bin: krypthor.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux GUI dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libx11-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libgl1-mesa-dev
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package release archive (Unix)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          ASSET_NAME="krypthor-${VERSION}-${{ matrix.target }}"
+          mkdir -p "dist/${ASSET_NAME}"
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/${ASSET_NAME}/"
+          cp README.md LICENSE "dist/${ASSET_NAME}/"
+          tar -C dist -czf "${ASSET_NAME}.tar.gz" "${ASSET_NAME}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "${ASSET_NAME}.tar.gz" > "${ASSET_NAME}.tar.gz.sha256"
+          else
+            shasum -a 256 "${ASSET_NAME}.tar.gz" > "${ASSET_NAME}.tar.gz.sha256"
+          fi
+
+      - name: Package release archive (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME
+          $assetName = "krypthor-$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "dist/$assetName" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" "dist/$assetName/"
+          Copy-Item README.md, LICENSE "dist/$assetName/"
+          Compress-Archive -Path "dist/$assetName/*" -DestinationPath "$assetName.zip"
+          $hash = (Get-FileHash "$assetName.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $assetName.zip" | Out-File -Encoding ascii "$assetName.zip.sha256"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: krypthor-${{ matrix.target }}
+          path: |
+            krypthor-*.tar.gz
+            krypthor-*.tar.gz.sha256
+            krypthor-*.zip
+            krypthor-*.zip.sha256
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: krypthor-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Generate combined SHA256SUMS.txt
+        working-directory: release-assets
+        run: sha256sum *.tar.gz *.zip > SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/*.sha256
+            release-assets/SHA256SUMS.txt
